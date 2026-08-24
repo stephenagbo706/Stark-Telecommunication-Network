@@ -133,6 +133,8 @@ body {
 .a-slide { animation: kf-slide 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 .a-shake { animation: kf-shake 0.45s ease both; }
 .a-marquee { animation: kf-marquee 26s linear infinite; }
+.newsline-track { animation-duration: 34s; }
+.newsline-track:hover { animation-play-state: paused; }
 .a-float { animation: kf-float 7s ease-in-out infinite; }
 .a-blink { animation: kf-blink 1.6s ease infinite; }
 

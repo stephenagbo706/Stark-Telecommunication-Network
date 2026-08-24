@@ -42,6 +42,15 @@ export default function Home() {
 
   const recent = txs.slice(0, 5);
 
+  const newsMeta = (id: string): { icon: (p: { size?: number; className?: string }) => React.ReactNode; cta: string; go: () => void } => {
+    switch (id) {
+      case "p1": return { icon: IArrowDL, cta: "View cashback", go: () => nav.setTab("wallet") };
+      case "p2": return { icon: IStar, cta: "Earn 2× points", go: () => nav.push({ name: "rewards" }) };
+      case "p3": return { icon: IUsers, cta: "Invite friends", go: () => nav.push({ name: "referrals" }) };
+      default: return { icon: IMeter, cta: "Pay meter — ₦0 fee", go: () => nav.push({ name: "buy", service: "electricity" }) };
+    }
+  };
+
   return (
     <div className="pb-28">
       {/* greeting bar */}
@@ -110,15 +119,47 @@ export default function Home() {
         </Reveal>
       </div>
 
-      {/* promo ticker */}
-      <div className="mt-4 overflow-hidden border-y border-line bg-panel/60">
-        <div className="flex a-marquee whitespace-nowrap py-2" style={{ width: "max-content" }}>
-          {[...PROMOS, ...PROMOS].map((p, i) => (
-            <span key={i} className="inline-flex items-center gap-2 mx-5 text-[11px] font-semibold text-sub">
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: p.hue }} />
-              <b style={{ color: p.hue }}>{p.tag}</b> {p.title} — {p.sub}
-            </span>
-          ))}
+      {/* STARK NEWSLINE — live billboard of trending stories */}
+      <div className="mt-5 px-5 flex items-center gap-2">
+        <span className="relative flex w-2 h-2">
+          <span className="absolute inset-0 rounded-full bg-bad animate-ping opacity-60 motion-reduce:hidden" />
+          <span className="relative w-2 h-2 rounded-full bg-bad" />
+        </span>
+        <h2 className="font-display font-bold text-[13px] tracking-wide">STARK NEWSLINE</h2>
+        <span className="text-[8px] font-bold tracking-[0.22em] text-mute border border-line rounded px-1.5 py-0.5">LIVE WIRE</span>
+        <span className="ml-auto text-[9px] font-bold text-mute tnum">{PROMOS.length} TRENDING</span>
+      </div>
+      <div className="mt-2.5 overflow-hidden [mask-image:linear-gradient(90deg,transparent,black_6%,black_94%,transparent)]">
+        <div className="newsline-track a-marquee flex gap-3 py-1.5 px-6" style={{ width: "max-content" }}>
+          {[...PROMOS, ...PROMOS].map((p, i) => {
+            const meta = newsMeta(p.id);
+            const MIcon = meta.icon;
+            return (
+              <button
+                key={p.id + "-" + i}
+                onClick={meta.go}
+                className="press lift relative w-[222px] shrink-0 rounded-xl border border-line bg-panel p-3.5 text-left overflow-hidden group"
+              >
+                <span className="absolute top-0 left-0 right-0 h-[2px]" style={{ background: `linear-gradient(90deg, transparent, ${p.hue}, transparent)` }} />
+                <span className="absolute -top-7 -right-7 w-24 h-24 rounded-full opacity-[0.13] group-hover:opacity-30 transition-opacity" style={{ background: `radial-gradient(circle, ${p.hue}, transparent 70%)` }} />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[8px] font-bold tracking-[0.18em] px-1.5 py-[3px] rounded" style={{ color: p.hue, background: `${p.hue}1a`, border: `1px solid ${p.hue}40` }}>
+                    {p.tag}
+                  </span>
+                  <span className="flex items-center gap-1 text-[8px] font-bold text-bad tracking-wider">
+                    <span className="w-1 h-1 rounded-full bg-bad a-blink" /> TRENDING
+                  </span>
+                  <span className="ml-auto font-display font-bold text-[11px] text-mute tnum">#{(i % PROMOS.length) + 1}</span>
+                </div>
+                <p className="font-display font-bold text-[14.5px] leading-snug mt-2">{p.title}</p>
+                <p className="text-[10px] text-sub font-semibold mt-1 leading-snug">{p.sub}</p>
+                <span className="flex items-center gap-1 mt-2.5 text-[9.5px] font-bold" style={{ color: p.hue }}>
+                  <MIcon size={12} /> {meta.cta}
+                  <IChevR size={10} className="transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
