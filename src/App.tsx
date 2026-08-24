@@ -10,6 +10,7 @@ import Ai from "./screens/AI";
 import Profile, { Security } from "./screens/Profile";
 import { Analytics, Beneficiaries, Diagnostics, Help, Notifications, Referrals, Rewards, Subscriptions } from "./screens/More";
 import { IHome, IWallet, ISpark, IActivity, IUser, IWifi, StarkMark } from "./components/icons";
+import Console from "./screens/Console";
 
 const TABS: { id: TabId; label: string; icon: (p: { size?: number; className?: string }) => React.ReactNode }[] = [
   { id: "home", label: "Home", icon: (p) => <IHome {...p} /> },
@@ -22,6 +23,7 @@ const TABS: { id: TabId; label: string; icon: (p: { size?: number; className?: s
 export default function App() {
   const authed = useStark((s) => s.authed);
   const theme = useStark((s) => s.theme);
+  const [eng, setEng] = useState(false);
   const [tab, setTab] = useState<TabId>("home");
   const [stack, setStack] = useState<Overlay[]>([]);
   const [clock, setClock] = useState(new Date());
@@ -43,8 +45,18 @@ export default function App() {
   const ledgerCount = useStark((s) => s.ledger.length);
   const txCount = useStark((s) => s.txs.length);
 
+  if (eng) return <Console onExit={() => setEng(false)} />;
+
   return (
     <div className="h-full w-full relative overflow-hidden bg-void text-ink font-body noise scanlines" data-theme={theme}>
+      {/* engineering console switch */}
+      <button
+        onClick={() => setEng(true)}
+        className="press fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3.5 py-2.5 rounded-full border border-cyan/40 bg-[#060D18]/90 backdrop-blur-md text-[10.5px] font-bold text-cyan hover:bg-cyan/10 shadow-[0_10px_30px_-10px_var(--st-glow)]"
+      >
+        <IWifi size={13} /> Engineering Console
+      </button>
+
       {/* ambient backdrop */}
       <div className="absolute inset-0 grid-bg grid-fade opacity-60" />
       <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(50% 40% at 15% 10%, var(--st-glow), transparent 70%), radial-gradient(45% 40% at 90% 85%, rgba(139,92,246,0.08), transparent 70%)" }} />
