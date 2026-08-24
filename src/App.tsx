@@ -9,6 +9,7 @@ import Activity, { TxDetail } from "./screens/Transactions";
 import Ai from "./screens/AI";
 import Profile, { Security } from "./screens/Profile";
 import { Analytics, Beneficiaries, Diagnostics, Help, Notifications, Referrals, Rewards, Subscriptions } from "./screens/More";
+import Splash from "./screens/Splash";
 import { IHome, IWallet, ISpark, IActivity, IUser, IWifi, StarkMark } from "./components/icons";
 
 
@@ -23,6 +24,7 @@ const TABS: { id: TabId; label: string; icon: (p: { size?: number; className?: s
 export default function App() {
   const authed = useStark((s) => s.authed);
   const theme = useStark((s) => s.theme);
+  const [booting, setBooting] = useState(true);
   const [tab, setTab] = useState<TabId>("home");
   const [stack, setStack] = useState<Overlay[]>([]);
   const [clock, setClock] = useState(new Date());
@@ -46,6 +48,8 @@ export default function App() {
 
   return (
     <div className="h-full w-full relative overflow-hidden bg-void text-ink font-body noise scanlines" data-theme={theme}>
+      {booting && <Splash onDone={() => setBooting(false)} />}
+
       {/* ambient backdrop */}
       <div className="absolute inset-0 grid-bg grid-fade opacity-60" />
       <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(50% 40% at 15% 10%, var(--st-glow), transparent 70%), radial-gradient(45% 40% at 90% 85%, rgba(139,92,246,0.08), transparent 70%)" }} />
