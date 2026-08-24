@@ -33,15 +33,15 @@ services:
       retries: 12
 
   migrate:
-    image: migrate/migrate:v4.17.0
+    image: ghcr.io/pressly/goose:v3.24.0
     depends_on:
       postgres:
         condition: service_healthy
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgres://stark:${POSTGRES_PASSWORD:-stark-dev-only}@postgres:5432/stark?sslmode=disable
     volumes: [./migrations:/migrations]
-    command:
-      - "-path=/migrations"
-      - "-database=postgres://stark:${POSTGRES_PASSWORD:-stark-dev-only}@postgres:5432/stark?sslmode=disable"
-      - "up"
+    command: ["goose", "-dir", "/migrations", "up"]
     restart: on-failure
 
   api:

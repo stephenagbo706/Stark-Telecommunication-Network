@@ -67,9 +67,10 @@ type Entry struct {
 	AmountKobo  int64
 }
 
-// Post writes an immutable, balanced ledger posting inside tx.
-// It also maintains wallet materialized balances under row locks.
-func (m *Module) Post(ctx context.Context, tx pgx.Tx, userID, txID, idemKey, description string, entries []Entry) error {
+// ValidateEntries is the first line of double-entry defense: a posting
+// must have at least two legs, strictly positive amounts, and total
+// debits must equal total credits. Pure function — unit tested without a DB.
+func ValidateEntries(entries []Entry) error {
 	if len(entries) < 2 {
 		return errors.New("ledger posting requires at least two legs")
 	}
@@ -77,6 +78,9 @@ func (m *Module) Post(ctx context.Context, tx pgx.Tx, userID, txID, idemKey, des
 	for _, e := range entries {
 		if e.AmountKobo <= 0 {
 			return errors.New("ledger amounts must be positive")
+		}
+		if e.Direction != "DEBIT" && e.Direction != "CREDIT" {
+			return errors.New("ledger direction must be DEBIT or CREDIT")
 		}
 		if e.Direction == "DEBIT" {
 			debits += e.AmountKobo
@@ -86,6 +90,15 @@ func (m *Module) Post(ctx context.Context, tx pgx.Tx, userID, txID, idemKey, des
 	}
 	if debits != credits {
 		return fmt.Errorf("unbalanced posting: debits=%d credits=%d", debits, credits)
+	}
+	return nil
+}
+
+// Post writes an immutable, balanced ledger posting inside tx.
+// It also maintains wallet materialized balances under row locks.
+func (m *Module) Post(ctx context.Context, tx pgx.Tx, userID, txID, idemKey, description string, entries []Entry) error {
+	if err := ValidateEntries(entries); err != nil {
+		return err
 	}
 
 	// Lock the wallet row first — deterministic order prevents deadlocks.

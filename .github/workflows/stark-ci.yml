@@ -1,0 +1,86 @@
+# STARK Telecommunication — CI pipeline
+# Runs on every push/PR: Go (vet + race tests incl. financial safety),
+# Flutter (analyze + test), then builds the release artifacts.
+name: stark-ci
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  go:
+    name: Go backend
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: stark
+          POSTGRES_PASSWORD: stark-test
+          POSTGRES_DB: stark_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U stark"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: stark-api/go.mod
+      - name: Vet
+        working-directory: stark-api
+        run: go vet ./...
+      - name: Migrate
+        run: |
+          go run github.com/pressly/goose/v3/cmd/goose@latest \
+            -dir stark-api/migrations \
+            postgres "postgres://stark:stark-test@localhost:5432/stark_test?sslmode=disable" up
+      - name: Unit + financial safety tests (race detector)
+        working-directory: stark-api
+        env:
+          STARK_TEST_DB_URL: postgres://stark:stark-test@localhost:5432/stark_test?sslmode=disable
+          STARK_TEST_REDIS: localhost:6379
+        run: go test ./... -race -count=1
+
+  flutter:
+    name: Flutter app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.x"
+          channel: stable
+          cache: true
+      - name: Dependencies
+        working-directory: stark-flutter
+        run: flutter pub get
+      - name: Codegen (Freezed / Drift / json_serializable)
+        working-directory: stark-flutter
+        run: dart run build_runner build --delete-conflicting-outputs
+      - name: Analyze
+        working-directory: stark-flutter
+        run: flutter analyze --fatal-infos
+      - name: Unit + widget tests
+        working-directory: stark-flutter
+        run: flutter test --coverage
+
+  docker:
+    name: Build images
+    needs: [go, flutter]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose build (api + worker)
+        working-directory: stark-api
+        run: |
+          STARK_JWT_ACCESS_SECRET=ci STARK_JWT_REFRESH_SECRET=ci \
+          PAYSTACK_SECRET_KEY=ci docker compose build

@@ -1,7 +1,8 @@
+-- +goose Up
 -- ============================================================
 -- STARK TELECOMMUNICATION — PostgreSQL schema (initial)
 -- Money is stored as BIGINT kobo. Ledger entries are immutable.
--- Rollback: drop tables in reverse dependency order.
+-- Managed by Goose:  goose -dir migrations postgres "$DB_URL" up
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -371,3 +372,15 @@ INSERT INTO ledger_accounts (id, user_id, kind, currency) VALUES
   (gen_random_uuid(), NULL, 'SETTLEMENT', 'NGN'),
   (gen_random_uuid(), NULL, 'PAYSTACK_CLEARING', 'NGN'),
   (gen_random_uuid(), NULL, 'FEE', 'NGN');
+
+-- +goose Down
+-- Rename this file to 000001_init.sql for Goose's single-file convention.
+DROP FUNCTION IF EXISTS touch_updated_at() CASCADE;
+DROP TABLE IF EXISTS api_keys, audit_logs, security_events, fraud_events,
+  disputes, support_tickets, notifications, promotions, cashback_entries,
+  rewards, referrals, subscriptions, beneficiaries,
+  electricity_transactions, cable_transactions, data_transactions,
+  airtime_transactions, provider_transactions, provider_products, providers,
+  payment_webhooks, payments, transaction_items, transactions,
+  ledger_entries, ledger_accounts, wallets, sessions, devices,
+  profiles, users CASCADE;
