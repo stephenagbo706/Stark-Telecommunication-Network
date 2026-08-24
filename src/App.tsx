@@ -10,7 +10,7 @@ import Ai from "./screens/AI";
 import Profile, { Security } from "./screens/Profile";
 import { Analytics, Beneficiaries, Diagnostics, Help, Notifications, Referrals, Rewards, Subscriptions } from "./screens/More";
 import Splash from "./screens/Splash";
-import { IHome, IWallet, ISpark, IActivity, IUser, IWifi, StarkMark } from "./components/icons";
+import { IHome, IWallet, ISpark, ISparkSharp, IActivity, IUser, IWifi, StarkMark } from "./components/icons";
 
 
 const TABS: { id: TabId; label: string; icon: (p: { size?: number; className?: string }) => React.ReactNode }[] = [
@@ -122,10 +122,42 @@ export default function App() {
                       const active = tab === t.id && stack.length === 0;
                       if (t.id === "ai") {
                         return (
-                          <button key={t.id} onClick={() => nav.setTab("ai")} className="press relative -mt-7 mx-1 w-14 h-14 rounded-2xl grid place-items-center text-cyanink shadow-[0_10px_30px_-8px_var(--st-glow)]"
-                            style={{ background: active ? "linear-gradient(135deg,#8B5CF6,#6D28D9)" : "linear-gradient(135deg,#00E5FF,#00B8D4)" }} aria-label="Stark AI">
-                            <ISpark size={24} />
-                            <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 text-[8px] font-bold tracking-wider" style={{ color: "var(--st-mute)" }}>AI</span>
+                          <button
+                            key={t.id}
+                            onClick={() => nav.setTab("ai")}
+                            className="press relative -mt-9 mx-1.5 flex flex-col items-center gap-1 group"
+                            aria-label="Stark AI"
+                          >
+                            <span className="relative block w-[58px] h-[58px]">
+                              {/* breathing halo */}
+                              <span
+                                className="absolute -inset-2.5 rounded-full a-breathe pointer-events-none"
+                                style={{ background: "radial-gradient(circle, rgba(0,229,255,0.4), rgba(139,92,246,0.15) 55%, transparent 72%)" }}
+                              />
+                              {/* rotating conic ring */}
+                              <span
+                                className={`absolute inset-0 rounded-full a-spin transition-opacity ${active ? "opacity-100" : "opacity-75 group-hover:opacity-100"}`}
+                                style={{
+                                  background: "conic-gradient(from 40deg, #00E5FF, #38BDF8, #8B5CF6, #22D3EE, #00E5FF)",
+                                  animationDuration: active ? "4s" : "9s",
+                                  boxShadow: active ? "0 10px 34px -6px var(--st-glow), 0 0 22px rgba(139,92,246,0.45)" : "0 10px 28px -8px var(--st-glow)",
+                                }}
+                              />
+                              {/* inner core */}
+                              <span
+                                className="absolute inset-[2.5px] rounded-full grid place-items-center transition-colors"
+                                style={{ background: active ? "linear-gradient(150deg,#221247 0%,#31206B 100%)" : "linear-gradient(150deg,#07222F 0%,#0B3247 100%)" }}
+                              >
+                                <ISparkSharp size={27} />
+                              </span>
+                            </span>
+                            {/* nameplate */}
+                            <span
+                              className={`text-[8.5px] font-bold tracking-[0.16em] transition-colors ${active ? "text-cyan" : "text-mute group-hover:text-sub"}`}
+                              style={active ? { textShadow: "0 0 12px var(--st-glow)" } : undefined}
+                            >
+                              STARK AI
+                            </span>
                           </button>
                         );
                       }

@@ -15,6 +15,24 @@ export const IMeter = (p: P) => <S {...p}><path d="M13 2 5.5 13.5h5L10 22l7.5-11
 export const IWallet = (p: P) => <S {...p}><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h11.5A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5H6a2.5 2.5 0 0 1-2.5-2.5v-9z" /><path d="M3.5 9h17" /><circle cx="16" cy="14" r="1.2" fill="currentColor" stroke="none" /></S>;
 export const IChart = (p: P) => <S {...p}><path d="M4 20V4" /><path d="M4 20h16" /><path d="m7 14 3.5-4 3 2.5L17.5 8" /><circle cx="17.5" cy="8" r="1.3" fill="currentColor" stroke="none" /></S>;
 export const ISpark = (p: P) => <S {...p}><path d="M12 3v4M12 17v4M3 12h4M17 12h4" /><path d="M12 8.5 13.2 11l2.5 1-2.5 1L12 15.5 10.8 13l-2.5-1 2.5-1L12 8.5z" fill="currentColor" stroke="none" /></S>;
+
+/** Refined layered spark — the Stark AI centerpiece mark. */
+export const ISparkSharp = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+    <defs>
+      <linearGradient id="aiSparkGrad" x1="5" y1="3" x2="19" y2="21" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#67F2FF" /><stop offset="0.55" stopColor="#00E5FF" /><stop offset="1" stopColor="#8B5CF6" />
+      </linearGradient>
+    </defs>
+    {/* primary 4-point star */}
+    <path d="M12 2.6c.5 3.9 1.6 6.4 3.1 7.6 1.3 1 3.6 1.6 6.3 1.8-2.7.2-5 .8-6.3 1.8-1.5 1.2-2.6 3.7-3.1 7.6-.5-3.9-1.6-6.4-3.1-7.6-1.3-1-3.6-1.6-6.3-1.8 2.7-.2 5-.8 6.3-1.8 1.5-1.2 2.6-3.7 3.1-7.6z" fill="url(#aiSparkGrad)" />
+    {/* satellite sparks */}
+    <path d="M19 3.4c.2 1.4.6 2.3 1.1 2.7.5.4 1.2.6 2 .7-.8.1-1.5.3-2 .7-.5.4-.9 1.3-1.1 2.7-.2-1.4-.6-2.3-1.1-2.7-.5-.4-1.2-.6-2-.7.8-.1 1.5-.3 2-.7.5-.4.9-1.3 1.1-2.7z" fill="#00E5FF" opacity="0.9" />
+    <path d="M4.6 16.6c.15 1 .45 1.65.85 1.95.4.3.95.45 1.55.55-.6.1-1.15.25-1.55.55-.4.3-.7.95-.85 1.95-.15-1-.45-1.65-.85-1.95-.4-.3-.95-.45-1.55-.55.6-.1 1.15-.25 1.55-.55.4-.3.7-.95.85-1.95z" fill="#8B5CF6" opacity="0.85" />
+    {/* core glint */}
+    <circle cx="12" cy="12" r="1.15" fill="#EAFDFF" opacity="0.95" />
+  </svg>
+);
 export const IShield = (p: P) => <S {...p}><path d="M12 2.5 5 5.5v6c0 4.5 3 8 7 10 4-2 7-5.5 7-10v-6l-7-3z" /><path d="m9 11.5 2 2 4-4.5" /></S>;
 export const IBell = (p: P) => <S {...p}><path d="M6 9.5a6 6 0 0 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13.5 6 9.5z" /><path d="M10 18.5a2 2 0 0 0 4 0" /></S>;
 export const IGift = (p: P) => <S {...p}><rect x="4" y="8" width="16" height="4" rx="1" /><path d="M6 12v8.5h12V12" /><path d="M12 8v12.5" /><path d="M12 8s-1-4.5-4-4.5S6 8 6 8h6zM12 8s1-4.5 4-4.5S18 8 18 8h-6z" /></S>;
