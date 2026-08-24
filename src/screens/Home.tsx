@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useStark, useBalances, money0, money, timeAgo, type Tx } from "../lib/store";
 import { Avatar, Chip, Reveal, Spark, StatusBadge, useCountUp, useNav } from "../components/ui";
-import { PROMOS } from "../lib/data";
+import { PROMOS, AD_IMAGES as ADS } from "../lib/data";
+import AdShow from "../components/AdShow";
 import {
   IData, ITv, IMeter, IcoSignal, IGift, ISms, ITicket, ITarget, IPlus, IBell, IEye, IEyeOff,
   IChevR, ISpark, IUsers, IGauge, IArrowUR, IArrowDL, IStar, IChart, IWallet, IChevD,
@@ -117,6 +118,47 @@ export default function Home() {
             </div>
           </div>
         </Reveal>
+      </div>
+
+      {/* AD SHOW — rotating advertisement billboard */}
+      <div className="px-5 mt-5">
+        <AdShow
+          slides={[
+            {
+              img: ADS.data,
+              tag: "DATA BUNDLES",
+              hue: "#38BDF8",
+              headline: <>5% cashback on<br />data Fridays.</>,
+              sub: "Live plans for MTN, Airtel, Glo & 9mobile from the provider engine.",
+              cta: { label: "Buy data", onClick: () => nav.push({ name: "buy", service: "data" }) },
+            },
+            {
+              img: ADS.appHero,
+              tag: "STARK LEDGER",
+              hue: "#00E5FF",
+              headline: <>Every kobo moves on<br />one ledger.</>,
+              sub: "Immutable double-entry accounting — automatic reversals if a provider fails.",
+              chips: ["Airtime", "Data", "Cable", "Electricity", "Bulk SMS", "Exam Pins"],
+              cta: { label: "View wallet", onClick: () => nav.setTab("wallet") },
+            },
+            {
+              img: ADS.power,
+              tag: "ELECTRICITY",
+              hue: "#F59E0B",
+              headline: <>₦0 fees on power<br />this week.</>,
+              sub: "Prepaid tokens for IKEDC, EKEDC and every major DisCo in seconds.",
+              cta: { label: "Pay electricity", onClick: () => nav.push({ name: "buy", service: "electricity" }) },
+            },
+            {
+              img: ADS.cable,
+              tag: "CABLE TV",
+              hue: "#8B5CF6",
+              headline: <>Renew before<br />the match starts.</>,
+              sub: "DSTV, GOtv & StarTimes with expiry reminders and auto-renew.",
+              cta: { label: "Renew cable", onClick: () => nav.push({ name: "buy", service: "cable" }) },
+            },
+          ]}
+        />
       </div>
 
       {/* STARK NEWSLINE — live billboard of trending stories */}

@@ -110,6 +110,14 @@ export const BANKS: string[] = [
 
 export const AIRTIME_PRESETS = [100, 200, 500, 1000, 2000, 5000];
 
+/* Generated advertisement artwork used by the AdShow billboard. */
+export const AD_IMAGES = {
+  appHero: "https://image.qwenlm.ai/generated-images/576c7d85-48bd-4c45-a91b-3e1ffc26e5ca/_result.png",
+  data: "https://image.qwenlm.ai/generated-images/d2c4af0e-5f75-4e0a-b30d-83274af19d64/_result.png",
+  power: "https://image.qwenlm.ai/generated-images/0a70cd68-b139-48d9-8c0e-418603b63ca5/_result.png",
+  cable: "https://image.qwenlm.ai/generated-images/3fcfe78c-0d31-4158-9326-9bd64461edd2/_result.png",
+};
+
 export const PROMOS: { id: string; tag: string; title: string; sub: string; hue: string }[] = [
   { id: "p1", tag: "CASHBACK", title: "5% cashback Fridays", sub: "On all data bundles over ₦1,000", hue: "#00E5FF" },
   { id: "p2", tag: "REWARDS", title: "Double points weekend", sub: "Earn 2× STARK points on airtime", hue: "#8B5CF6" },

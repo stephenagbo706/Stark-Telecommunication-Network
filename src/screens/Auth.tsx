@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStark } from "../lib/store";
 import { Field, PinPad, SBtn, Scramble } from "../components/ui";
-import { IcoBolt, IChevR, ICheck, IPlay, IShield, IcoSignal, StarkMark } from "../components/icons";
+import { IcoBolt, IChevR, ICheck, IPlay, IShield, StarkMark } from "../components/icons";
+import AdShow from "../components/AdShow";
+import { AD_IMAGES as ADS } from "../lib/data";
 
 type Mode = "welcome" | "login" | "unlock" | "register" | "pin" | "otp" | "reset" | "newpin";
 
@@ -70,16 +72,43 @@ export default function Auth() {
       <div className="flex-1 px-6 pb-6">
         {mode === "welcome" && (
           <div className="a-rise space-y-5">
-            <div className="card p-5 relative overflow-hidden sweep-line">
-              <div className="absolute -right-6 -top-6 text-cyan/10"><IcoSignal size={120} sw={1} /></div>
-              <h2 className="font-display font-bold text-xl leading-snug relative">Airtime, data, power<br />and payments — <span className="text-cyan">one ledger.</span></h2>
-              <p className="text-xs text-sub mt-2 leading-relaxed relative">Every kobo moves through an immutable double-entry ledger. If a provider fails, your money reverses automatically.</p>
-              <div className="flex gap-2 mt-4 flex-wrap relative">
-                {["Airtime", "Data", "Cable", "Electricity", "Bulk SMS", "Exam Pins"].map((s) => (
-                  <span key={s} className="text-[10px] font-bold px-2 py-1 rounded-md bg-well border border-line text-sub">{s}</span>
-                ))}
-              </div>
-            </div>
+            <AdShow
+              slides={[
+                {
+                  img: ADS.appHero,
+                  tag: "STARK TELECOM",
+                  hue: "#00E5FF",
+                  headline: <>Airtime, data, power<br />and payments — <span className="text-cyan">one ledger.</span></>,
+                  sub: "Every kobo moves through an immutable double-entry ledger. If a provider fails, your money reverses automatically.",
+                  chips: ["Airtime", "Data", "Cable", "Electricity", "Bulk SMS", "Exam Pins"],
+                  cta: { label: "Create an account", onClick: () => { setErr(null); setMode("register"); } },
+                },
+                {
+                  img: ADS.data,
+                  tag: "DATA BUNDLES",
+                  hue: "#38BDF8",
+                  headline: <>Cheaper data on<br />every network.</>,
+                  sub: "Live plans for MTN, Airtel, Glo & 9mobile — plus 5% cashback every Friday.",
+                  cta: { label: "Join Stark", onClick: () => { setErr(null); setMode("register"); } },
+                },
+                {
+                  img: ADS.power,
+                  tag: "ELECTRICITY",
+                  hue: "#F59E0B",
+                  headline: <>Light up in<br />seconds.</>,
+                  sub: "Prepaid tokens for every Nigerian DisCo. ₦0 fees on IKEDC & EKEDC this week.",
+                  cta: { label: "Join Stark", onClick: () => { setErr(null); setMode("register"); } },
+                },
+                {
+                  img: ADS.cable,
+                  tag: "CABLE TV",
+                  hue: "#8B5CF6",
+                  headline: <>Never miss<br />the match.</>,
+                  sub: "DSTV, GOtv & StarTimes renewals with one tap — reminders before expiry.",
+                  cta: { label: "Join Stark", onClick: () => { setErr(null); setMode("register"); } },
+                },
+              ]}
+            />
 
             <div className="space-y-2.5">
               <SBtn className="w-full" onClick={() => { setErr(null); setForm((f) => ({ ...f, phone: f.phone || profile?.phone || "" })); setMode(profile ? "unlock" : "login"); }}>
