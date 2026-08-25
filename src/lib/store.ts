@@ -417,8 +417,8 @@ export const useStark = create<StarkState>()(
       markRead: (id) => set((s) => ({ notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)) })),
       addTicket: ({ subject, category, body, ref }) => {
         set((s) => ({ tickets: [{ id: uid(), ts: Date.now(), subject, category, body, status: "OPEN", ref }, ...s.tickets] }));
-        get().notify({ kind: "info", title: "Support ticket created", body: `“${subject}” is with our support team. Average response time is under 4 hours.` });
-        get().toast("Ticket sent to support", "ok");
+        get().notify({ kind: "info", title: "Support ticket recorded", body: `“${subject}” was prepared for WhatsApp delivery${ref ? ` (${ref})` : ""}. Send the message in WhatsApp to reach Stark Support.` });
+        get().toast("Support ticket recorded", "ok");
       },
       addBeneficiary: (b) => { set((s) => ({ beneficiaries: [{ ...b, id: uid(), ts: Date.now() }, ...s.beneficiaries] })); get().toast("Beneficiary saved", "ok"); },
       removeBeneficiary: (id) => set((s) => ({ beneficiaries: s.beneficiaries.filter((b) => b.id !== id) })),

@@ -296,11 +296,18 @@ CREATE INDEX idx_notif_user ON notifications (user_id, created_at DESC) WHERE re
 CREATE TABLE support_tickets (
   id         UUID PRIMARY KEY,
   user_id    UUID NOT NULL REFERENCES users(id),
+  ref        TEXT NOT NULL,                  -- STK-TKT-000184 (human reference)
   subject    TEXT NOT NULL,
   body       TEXT NOT NULL,
   status     TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','UNDER_REVIEW','RESOLVED','CLOSED')),
+  metadata   JSONB NOT NULL DEFAULT '{}',    -- e.g. {"transaction_ref": "STK-…"}
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX uq_support_ref ON support_tickets (ref);
+CREATE INDEX idx_support_user ON support_tickets (user_id, created_at DESC);
+
+-- Sequential human ticket references (STK-TKT-000001 …).
+CREATE SEQUENCE support_ticket_seq START 1;
 
 CREATE TABLE disputes (
   id             UUID PRIMARY KEY,

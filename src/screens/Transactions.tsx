@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useStark, money, money0, fmtDate, fmtTime, type Tx } from "../lib/store";
 import { Chip, EmptyState, QRBox, SBtn, ScreenHeader, Sheet, StatusBadge, useNav } from "../components/ui";
-import { IActivity, ICopy, IDownload, ISearch, IArrowUR, IArrowDL, IcoBolt, IChevR, IHeadset } from "../components/icons";
+import { IActivity, ICopy, IDownload, ISearch, IArrowUR, IArrowDL, IcoBolt, IChevR, IHeadset, IChat } from "../components/icons";
 import { SERVICES } from "./Home";
 
 const FILTERS = ["All", "Successful", "Failed", "Pending"];
@@ -172,7 +172,10 @@ export function TxDetail({ id }: { id: string }) {
             <SBtn variant="ghost" onClick={() => nav.push({ name: "buy", service: tx.service })}><IChevR size={15} /> Buy again</SBtn>
           )}
         </div>
-        <SBtn variant="danger" className="w-full mt-2.5" onClick={() => setDisputeOpen(true)}><IHeadset size={15} /> Report a problem</SBtn>
+        <div className="grid grid-cols-2 gap-2.5 mt-2.5">
+          <SBtn variant="danger" onClick={() => setDisputeOpen(true)}><IHeadset size={15} /> Report a problem</SBtn>
+          <SBtn variant="ghost" onClick={() => nav.push({ name: "help", txId: tx.id })}><IChat size={15} /> WhatsApp support</SBtn>
+        </div>
         <p className="text-[10px] text-mute text-center mt-3 leading-relaxed px-4">
           Disputes are verified against the provider with the Stark reference. Most are resolved within 24 hours.
         </p>

@@ -15,6 +15,7 @@ import (
 	"stark-api/internal/auth"
 	"stark-api/internal/finance"
 	"stark-api/internal/platform"
+	"stark-api/internal/support"
 )
 
 func main() {
@@ -49,7 +50,9 @@ func main() {
 	// wallet, ledger, transactions, payments (Paystack) and VTU providers.
 	authMod := auth.New(cfg, db, rdb, log)
 	finMod := finance.New(cfg, db, rdb, log)
+	supportMod := support.New(db, log)
 	finance.SetAuthMiddleware(authMod.Auth)
+	support.SetAuthMiddleware(authMod.Auth)
 
 	// Background workers: reconciliation, provider health, renewals.
 	go finMod.RunReconciler(ctx, 60*time.Second)
@@ -64,6 +67,7 @@ func main() {
 	mux := platform.NewMux(cfg, log, rdb)
 	authMod.Routes(mux)
 	finMod.Routes(mux)
+	supportMod.Routes(mux)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

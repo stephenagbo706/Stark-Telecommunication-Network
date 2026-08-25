@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useStark, useBalances, money, money0, timeAgo, fmtDate, type Service } from "../lib/store";
 import { Avatar, Chip, EmptyState, Field, Progress, SBtn, ScreenHeader, Seg, Sheet, StatusBadge, Toggle, useNav } from "../components/ui";
 import { FAQS, REWARD_TIERS, NETWORKS } from "../lib/data";
+import {
+  validateTicket, buildSupportMessage, buildWhatsAppUrl, buildWhatsAppWebUrl,
+  launchWhatsApp, copySupportMessage, nextTicketId, STARK_WHATSAPP_DISPLAY,
+} from "../lib/whatsapp";
 import { IBell, ICheck, IChevD, IChevR, ICopy, IGauge, IHeadset, IInfo, ISearch, IShield, IStar, ITv, IUsers, IWallet, IWifi, IX, IArrowUR, IData, IcoSignal, IMeter, ISms, ITicket, ITarget, IGift, IPlus } from "../components/icons";
 
 const KIND_ICON: Record<string, React.ReactNode> = {
@@ -181,14 +185,68 @@ export function Rewards() {
 }
 
 /* ================= help ================= */
-export function Help() {
+export function Help({ txId }: { txId?: string }) {
   const nav = useNav();
   const store = useStark();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<number | null>(0);
   const [sheet, setSheet] = useState(false);
   const [t, setT] = useState({ subject: "", category: "General", body: "" });
+  /* WhatsApp submit flow: idle → preparing → ready | unavailable */
+  const [phase, setPhase] = useState<"idle" | "preparing" | "ready" | "unavailable">("idle");
+  const [err, setErr] = useState<string | null>(null);
+  const [prepared, setPrepared] = useState<{ message: string; ticketId: string } | null>(null);
   const faqs = FAQS.filter((f) => (f.q + f.a).toLowerCase().includes(q.toLowerCase()));
+
+  const ctxTx = txId ? store.txs.find((x) => x.id === txId) : undefined;
+
+  const closeSheet = () => {
+    setSheet(false);
+    setErr(null);
+    /* form is cleared only AFTER the message was prepared successfully */
+    if (phase === "ready") { setT({ subject: "", category: "General", body: "" }); setPrepared(null); }
+    setPhase("idle");
+  };
+
+  const submitTicket = () => {
+    setErr(null);
+    /* STEP 1–4: validate (exact spec messages) and trim whitespace */
+    const v = validateTicket({ subject: t.subject, category: t.category, description: t.body });
+    if (!v.ok) { setErr(v.error); return; }
+
+    /* STEP 5: build the professional support message */
+    const ticketId = nextTicketId();
+    const message = buildSupportMessage(
+      { subject: v.subject, category: v.category, description: v.description },
+      {
+        ticketId,
+        user: store.profile ? { name: store.profile.name, phone: store.profile.phone, email: store.profile.email } : undefined,
+        tx: ctxTx ? {
+          id: ctxTx.ref,
+          service: `${ctxTx.title}`,
+          amount: money0(ctxTx.total),
+          status: ctxTx.status,
+          provider: ctxTx.provider ?? "Stark provider engine",
+        } : undefined,
+      }
+    );
+
+    setPhase("preparing");
+    /* short, honest preparation beat — never a fake long loader */
+    window.setTimeout(() => {
+      const url = buildWhatsAppUrl(message);
+      const opened = launchWhatsApp(url);
+      if (opened) {
+        setPrepared({ message, ticketId });
+        setPhase("ready");
+        /* record the ticket locally with the WhatsApp ticket reference */
+        store.addTicket({ subject: v.subject, category: v.category, body: v.description, ref: ticketId });
+      } else {
+        setPrepared({ message, ticketId });
+        setPhase("unavailable");
+      }
+    }, 650);
+  };
   return (
     <div className="h-full flex flex-col">
       <ScreenHeader title="Help Centre" sub="Avg. response under 4 hours" onBack={nav.pop}
@@ -229,20 +287,78 @@ export function Help() {
           </div>
         )}
       </div>
-      <Sheet open={sheet} onClose={() => setSheet(false)} title="Open a support ticket">
+      <Sheet open={sheet} onClose={closeSheet} title="Open a support ticket">
         <div className="space-y-4 mt-3">
-          <Field label="Subject" placeholder="Data bundle not delivered" value={t.subject} onChange={(e) => setT({ ...t, subject: e.target.value })} />
-          <div>
-            <span className="block text-[11px] font-bold tracking-widest text-mute uppercase mb-1.5">Category</span>
-            <select className="st-input" value={t.category} onChange={(e) => setT({ ...t, category: e.target.value })}>
-              {["General", "Airtime", "Data", "Cable TV", "Electricity", "Wallet", "Dispute", "Security"].map((c) => <option key={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <span className="block text-[11px] font-bold tracking-widest text-mute uppercase mb-1.5">Describe the issue</span>
-            <textarea className="st-input min-h-[100px] resize-none" placeholder="Include dates, phone numbers and references…" value={t.body} onChange={(e) => setT({ ...t, body: e.target.value })} />
-          </div>
-          <SBtn className="w-full" disabled={t.subject.trim().length < 4 || t.body.trim().length < 10} onClick={() => { store.addTicket(t); setSheet(false); setT({ subject: "", category: "General", body: "" }); }}>Submit ticket</SBtn>
+          {/* routed here from a transaction — its details ride along in the message */}
+          {ctxTx && (
+            <div className="card px-4 py-3 flex items-center gap-3 border-info/30 bg-info/5">
+              <span className="w-8 h-8 rounded-lg bg-info/12 text-info grid place-items-center border border-info/25"><ITicket size={15} /></span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-bold truncate">{ctxTx.title}</p>
+                <p className="text-[10px] text-mute font-semibold font-mono">{ctxTx.ref} • {ctxTx.status}</p>
+              </div>
+              <span className="text-[9px] font-bold tracking-wider text-info border border-info/30 rounded px-1.5 py-0.5">ATTACHED</span>
+            </div>
+          )}
+
+          {phase === "idle" || phase === "preparing" ? (
+            <>
+              <Field label="Subject *" placeholder="Data bundle not delivered" value={t.subject} onChange={(e) => setT({ ...t, subject: e.target.value })} />
+              <div>
+                <span className="block text-[11px] font-bold tracking-widest text-mute uppercase mb-1.5">Category *</span>
+                <select className="st-input" value={t.category} onChange={(e) => setT({ ...t, category: e.target.value })}>
+                  {["General", "Airtime", "Data", "Cable TV", "Electricity", "Wallet", "Dispute", "Security"].map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <span className="block text-[11px] font-bold tracking-widest text-mute uppercase mb-1.5">Describe the issue *</span>
+                <textarea className="st-input min-h-[100px] resize-none" placeholder="Include dates, phone numbers and references…" value={t.body} onChange={(e) => setT({ ...t, body: e.target.value })} />
+              </div>
+
+              {err && (
+                <div className="a-rise flex items-start gap-2 text-[11.5px] font-semibold text-bad bg-bad/8 border border-bad/30 rounded-xl px-3.5 py-2.5">
+                  <IX size={14} className="shrink-0 mt-0.5" /> {err}
+                </div>
+              )}
+
+              <SBtn className="w-full" loading={phase === "preparing"} disabled={phase === "preparing"} onClick={submitTicket}>
+                {phase === "preparing" ? "Preparing support request…" : "Submit ticket"}
+              </SBtn>
+              <p className="text-[10px] text-mute leading-relaxed text-center -mt-1">
+                Opens WhatsApp chat with <span className="text-sub font-bold">{STARK_WHATSAPP_DISPLAY}</span> — Stark Support.
+                Your details{ctxTx ? " and the attached transaction" : ""} are pre-filled; you review and tap Send.
+              </p>
+            </>
+          ) : phase === "ready" && prepared ? (
+            <div className="a-rise space-y-4">
+              <div className="card p-5 text-center border-ok/30 bg-ok/5">
+                <span className="mx-auto w-12 h-12 rounded-full bg-ok/12 border border-ok/30 text-ok grid place-items-center mb-3"><ICheck size={22} sw={2.4} /></span>
+                <p className="font-display font-bold text-[15px]">Your support message is ready in WhatsApp.</p>
+                <p className="text-[11px] text-sub mt-1.5 leading-relaxed">Review the message and tap <span className="font-bold text-ok">Send</span> to contact Stark Support.</p>
+                <p className="text-[10px] text-mute font-mono mt-2.5">Ticket {prepared.ticketId} recorded in your ticket history</p>
+              </div>
+              <pre className="st-input text-[10.5px] font-mono whitespace-pre-wrap leading-relaxed max-h-44 overflow-y-auto">{prepared.message}</pre>
+              <div className="grid grid-cols-2 gap-2.5">
+                <SBtn variant="ghost" onClick={() => copySupportMessage(prepared.message).then((ok) => store.toast(ok ? "Support message copied" : "Copy failed — select it manually", ok ? "ok" : "bad"))}><ICopy size={14} /> Copy message</SBtn>
+                <SBtn onClick={() => launchWhatsApp(buildWhatsAppUrl(prepared.message))}>Reopen WhatsApp</SBtn>
+              </div>
+              <SBtn variant="ghost" className="w-full" onClick={closeSheet}>Done</SBtn>
+            </div>
+          ) : prepared ? (
+            <div className="a-rise space-y-4">
+              <div className="card p-5 text-center border-warn/30 bg-warn/5">
+                <span className="mx-auto w-12 h-12 rounded-full bg-warn/12 border border-warn/30 text-warn grid place-items-center mb-3"><IHeadset size={20} /></span>
+                <p className="font-display font-bold text-[15px]">WhatsApp is not available on this device.</p>
+                <p className="text-[11px] text-sub mt-1.5 leading-relaxed">Your message is ready — copy it below or continue on WhatsApp Web. Your form details are kept.</p>
+              </div>
+              <pre className="st-input text-[10.5px] font-mono whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">{prepared.message}</pre>
+              <div className="grid grid-cols-2 gap-2.5">
+                <SBtn onClick={() => copySupportMessage(prepared.message).then((ok) => store.toast(ok ? "Support message copied" : "Copy failed — select it manually", ok ? "ok" : "bad"))}><ICopy size={14} /> Copy Support Message</SBtn>
+                <SBtn variant="ghost" onClick={() => window.open(buildWhatsAppWebUrl(prepared.message), "_blank", "noopener,noreferrer")}>Open WhatsApp Web</SBtn>
+              </div>
+              <SBtn variant="ghost" className="w-full" onClick={() => { setPhase("idle"); setPrepared(null); }}>← Back to form</SBtn>
+            </div>
+          ) : null}
         </div>
       </Sheet>
     </div>

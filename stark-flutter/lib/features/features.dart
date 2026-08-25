@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/core.dart';
+import '../core/services/whatsapp_service.dart';
 import '../shared/widgets.dart';
 
 /* ============================ DOMAIN =============================== */
@@ -735,6 +736,126 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 }
 
+/* ============== SUPPORT / WHATSAPP HELP CENTER ====================== */
+// Ticket form → WhatsAppService (validate → build → encode → launch).
+// The Go backend persists the ticket first (POST /api/v1/support/tickets)
+// so Stark keeps a record; WhatsApp then opens and the USER taps Send.
+// Opening WhatsApp never means "sent" — the UI says the message is READY.
+
+class SupportScreen extends ConsumerStatefulWidget {
+  const SupportScreen({super.key, this.transactionRef});
+  final String? transactionRef; // attached when opened from a transaction
+
+  @override
+  ConsumerState<SupportScreen> createState() => _SupportScreenState();
+}
+
+class _SupportScreenState extends ConsumerState<SupportScreen> {
+  final _subject = TextEditingController();
+  final _description = TextEditingController();
+  String _category = 'General';
+  bool _busy = false;
+  String? _error;
+  String? _readyMessage; // set once WhatsApp has been prepared
+
+  static const _categories = [
+    'General', 'Airtime', 'Data', 'Cable TV',
+    'Electricity', 'Wallet', 'Dispute', 'Security',
+  ];
+
+  Future<void> _submit() async {
+    setState(() { _busy = true; _error = null; });
+    const service = WhatsAppService();
+    final user = ref.read(authControllerProvider).valueOrNull;
+    try {
+      // Optional production step: persist ticket on the Go backend first
+      // to obtain a STK-TKT-… reference, then pass it as ticketId below.
+      final message = await service.sendSupportTicket(
+        subject: _subject.text,
+        category: _category,
+        description: _description.text,
+        user: user == null
+            ? null
+            : SupportUser(name: user.name, phone: user.phone, email: user.email),
+        tx: widget.transactionRef == null
+            ? null
+            : SupportTransaction(
+                id: widget.transactionRef!, service: 'Transaction',
+                amount: '—', status: 'SEE APP'),
+      );
+      setState(() => _readyMessage = message);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Your support message is ready in WhatsApp. '
+              'Review it and tap Send to contact Stark Support.'),
+        ));
+      }
+    } on TicketValidationException catch (e) {
+      setState(() => _error = e.message); // form is kept for retry
+    } on WhatsAppUnavailableException {
+      // Graceful fallback — copy + WhatsApp Web. Form stays intact.
+      final msg = service.createSupportMessage(
+        subject: _subject.text.trim(), category: _category,
+        description: _description.text.trim(),
+      );
+      setState(() => _readyMessage = msg);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text('WhatsApp is not available on this device.'),
+          action: SnackBarAction(
+            label: 'WhatsApp Web',
+            onPressed: () => service.openWhatsAppWeb(msg),
+          ),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Open a support ticket',
+          style: TextStyle(fontWeight: FontWeight.w800))),
+      body: ListView(
+        padding: const EdgeInsets.all(StarkSpace.xl),
+        children: [
+          StarkTextField(label: 'Subject *', controller: _subject,
+              hint: 'Data bundle not delivered'),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _category,
+            decoration: const InputDecoration(labelText: 'Category *'),
+            items: _categories
+                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                .toList(),
+            onChanged: (c) => setState(() => _category = c ?? 'General'),
+          ),
+          const SizedBox(height: 12),
+          StarkTextField(label: 'Describe the issue *', controller: _description,
+              hint: 'Include dates, phone numbers and references…'),
+          if (_error != null) _ErrorText(_error!),
+          const SizedBox(height: 20),
+          StarkButton(
+            label: _busy ? 'Preparing support request…' : 'Submit ticket',
+            loading: _busy,
+            icon: Icons.chat_bubble_outline_rounded,
+            onPressed: _busy ? null : _submit,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Opens the Stark Help Center WhatsApp chat ($kStarkWhatsAppDisplay) '
+            'with your details pre-filled. You review the message and tap Send — '
+            'the app never sends it silently.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /* ====================== SHELL REGISTRATION ========================== */
 // Maps GoRouter placeholders to real screens. Replace _ScreenPlaceholder
 // lookups in appRouterProvider with these constructors in the full repo:
@@ -746,6 +867,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 //   '/ai'      → StarkShell(child: StarkAIScreen())
 //   '/profile' → StarkShell(child: ProfileScreen())
 //   '/buy/:s'  → BuyScreen(service: state.pathParameters['s']!)
+//   '/support' → StarkShell(child: SupportScreen())
+//   '/support/tx/:ref' → StarkShell(child: SupportScreen(transactionRef: ref))
 
 class StarkShell extends ConsumerStatefulWidget {
   const StarkShell({super.key, required this.child, required this.tab});

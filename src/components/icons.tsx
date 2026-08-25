@@ -37,6 +37,7 @@ export const IShield = (p: P) => <S {...p}><path d="M12 2.5 5 5.5v6c0 4.5 3 8 7 
 export const IBell = (p: P) => <S {...p}><path d="M6 9.5a6 6 0 0 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13.5 6 9.5z" /><path d="M10 18.5a2 2 0 0 0 4 0" /></S>;
 export const IGift = (p: P) => <S {...p}><rect x="4" y="8" width="16" height="4" rx="1" /><path d="M6 12v8.5h12V12" /><path d="M12 8v12.5" /><path d="M12 8s-1-4.5-4-4.5S6 8 6 8h6zM12 8s1-4.5 4-4.5S18 8 18 8h-6z" /></S>;
 export const ISms = (p: P) => <S {...p}><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z" /><path d="M8.5 10.5h7M8.5 13.5h4.5" /></S>;
+export const IChat = (p: P) => <S {...p}><path d="M12 3.5a8.5 8.5 0 0 0-7.3 12.8L3.5 20.5l4.3-1.1A8.5 8.5 0 1 0 12 3.5z" /><path d="M8.5 10.2h.01M12 10.2h.01M15.5 10.2h.01" strokeWidth="2.6" strokeLinecap="round" /></S>;
 export const ITicket = (p: P) => <S {...p}><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h13A1.5 1.5 0 0 1 20 7.5v2a2.5 2.5 0 0 0 0 5v2a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 16.5v-2a2.5 2.5 0 0 0 0-5v-2z" /><path d="M14 6v2.5M14 11v2M14 15.5V18" strokeDasharray="0.1 3.2" /></S>;
 export const ITarget = (p: P) => <S {...p}><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="4.5" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /></S>;
 export const IUsers = (p: P) => <S {...p}><circle cx="9" cy="8.5" r="3.5" /><path d="M2.5 20c.5-3.5 3.2-5.5 6.5-5.5s6 2 6.5 5.5" /><path d="M16 5.5a3.5 3.5 0 0 1 0 6.6M17.5 14.8c2 .8 3.6 2.5 4 5.2" /></S>;

@@ -8,7 +8,7 @@ export type Overlay =
   | { name: "buy"; service: string }
   | { name: "tx"; id: string }
   | { name: "notifications" } | { name: "security" } | { name: "referrals" }
-  | { name: "rewards" } | { name: "help" } | { name: "diagnostics" }
+  | { name: "rewards" } | { name: "help"; txId?: string } | { name: "diagnostics" }
   | { name: "analytics" } | { name: "subscriptions" } | { name: "beneficiaries" };
 
 interface Nav {

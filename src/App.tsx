@@ -193,7 +193,7 @@ function OverlayScreen({ o }: { o: Overlay }) {
     case "security": return <Security />;
     case "referrals": return <Referrals />;
     case "rewards": return <Rewards />;
-    case "help": return <Help />;
+    case "help": return <Help txId={o.txId} />;
     case "diagnostics": return <Diagnostics />;
     case "analytics": return <Analytics />;
     case "subscriptions": return <Subscriptions />;
