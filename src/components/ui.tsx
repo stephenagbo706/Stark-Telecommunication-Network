@@ -133,6 +133,17 @@ export function PinPad({ open, onClose, onSubmit, title = "Enter transaction PIN
       <button className="absolute inset-0 bg-black/70 a-fade" onClick={() => !busy && onClose()} aria-label="Close" />
       <div className={`relative a-sheet bg-raised border-t border-line rounded-t-3xl px-6 pt-4 pb-8 ${error ? "a-shake" : ""}`}>
         <div className="w-10 h-1 rounded-full bg-line mx-auto mb-4" />
+        {/* cancel — top-right, disabled while authorizing */}
+        <button
+          onClick={() => !busy && onClose()}
+          disabled={busy}
+          aria-label="Cancel"
+          className={`press absolute top-3.5 right-4 w-9 h-9 rounded-xl grid place-items-center border transition-colors ${
+            busy ? "opacity-40 cursor-not-allowed border-line text-mute" : "border-line bg-panel text-sub hover:text-bad hover:border-bad/50 hover:bg-bad/10"
+          }`}
+        >
+          <IX size={17} sw={2.2} />
+        </button>
         <div className="text-center mb-5">
           <div className="inline-grid place-items-center w-12 h-12 rounded-2xl bg-cyan/10 text-cyan mb-3"><IFinger size={24} /></div>
           <h3 className="font-display font-bold text-lg">{title}</h3>
