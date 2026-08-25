@@ -147,24 +147,28 @@ export default function Wallet() {
 
       {/* withdraw sheet */}
       <Sheet open={wdOpen} onClose={() => setWdOpen(false)} title="Withdraw to bank">
-        <div className="space-y-4 mt-3">
-          <Field label="Amount (₦)" inputMode="numeric" placeholder="5000" value={wd.amount} onChange={(e) => setWd({ ...wd, amount: e.target.value.replace(/\D/g, "") })} hint={`Available ${money0(b.available)} • transfer fee ₦10`} />
-          <div>
-            <span className="block text-[11px] font-bold tracking-widest text-mute uppercase mb-1.5">Bank</span>
-            <select className="st-input" value={wd.bank} onChange={(e) => setWd({ ...wd, bank: e.target.value })}>
-              {["GTBank", "Access Bank", "Zenith Bank", "First Bank", "UBA", "Kuda", "OPay", "Moniepoint"].map((bk) => <option key={bk}>{bk}</option>)}
-            </select>
-          </div>
-          <Field label="Account number" inputMode="numeric" placeholder="0123456789" value={wd.account} onChange={(e) => setWd({ ...wd, account: e.target.value.replace(/\D/g, "").slice(0, 10) })} />
-          {wd.account.length === 10 && (
-            <div className="a-pop flex items-center gap-2 text-xs font-semibold text-ok bg-ok/10 border border-ok/25 rounded-xl px-3 py-2.5">
-              <ICheck size={14} /> Account resolved: {profile?.name.toUpperCase()}
+        <div className="flex flex-col mt-3">
+          <div className="space-y-4">
+            <Field label="Amount (₦)" inputMode="numeric" placeholder="5000" value={wd.amount} onChange={(e) => setWd({ ...wd, amount: e.target.value.replace(/\D/g, "") })} hint={`Available ${money0(b.available)} • transfer fee ₦10`} />
+            <div>
+              <span className="block text-[11px] font-bold tracking-widest text-mute uppercase mb-1.5">Bank</span>
+              <select className="st-input" value={wd.bank} onChange={(e) => setWd({ ...wd, bank: e.target.value })}>
+                {["GTBank", "Access Bank", "Zenith Bank", "First Bank", "UBA", "Kuda", "OPay", "Moniepoint"].map((bk) => <option key={bk}>{bk}</option>)}
+              </select>
             </div>
-          )}
-          <SBtn className="w-full" disabled={!(Number(wd.amount) >= 100 && wd.account.length === 10)} onClick={() => { setPinErr(null); setPinFor("wd"); }}>
-            Withdraw {wd.amount ? money0(Number(wd.amount)) : ""} <IChevR size={15} />
-          </SBtn>
-          <p className="text-[10px] text-mute flex items-center gap-1.5"><IBank size={12} className="text-cyan" /> Payouts settle via Paystack Transfer in under 5 minutes.</p>
+            <Field label="Account number" inputMode="numeric" placeholder="0123456789" value={wd.account} onChange={(e) => setWd({ ...wd, account: e.target.value.replace(/\D/g, "").slice(0, 10) })} />
+            {wd.account.length === 10 && (
+              <div className="a-pop flex items-center gap-2 text-xs font-semibold text-ok bg-ok/10 border border-ok/25 rounded-xl px-3 py-2.5">
+                <ICheck size={14} /> Account resolved: {profile?.name.toUpperCase()}
+              </div>
+            )}
+          </div>
+          <div className="sticky bottom-0 -mx-5 px-5 pt-3 pb-1 mt-4 bg-raised border-t border-line/50 space-y-2.5">
+            <SBtn className="w-full" disabled={!(Number(wd.amount) >= 100 && wd.account.length === 10)} onClick={() => { setPinErr(null); setPinFor("wd"); }}>
+              Withdraw {wd.amount ? money0(Number(wd.amount)) : ""} <IChevR size={15} />
+            </SBtn>
+            <p className="text-[10px] text-mute flex items-center justify-center gap-1.5"><IBank size={12} className="text-cyan shrink-0" /> Payouts settle via Paystack Transfer in under 5 minutes.</p>
+          </div>
         </div>
       </Sheet>
 
@@ -185,47 +189,55 @@ function FundForm({ amount, setAmount, onSubmit, busy }: { amount: number; setAm
   const [step, setStep] = useState<"amt" | "card">("amt");
   const [card, setCard] = useState({ num: "4084 0840 8408 4081", exp: "12/27", cvv: "408" });
   return (
-    <div className="mt-3 space-y-4">
+    <div className="mt-3 flex flex-col">
       {step === "amt" ? (
         <>
-          <div>
-            <span className="block text-[11px] font-bold tracking-widest text-mute uppercase mb-1.5">Amount</span>
-            <div className="flex items-center gap-2 bg-well border border-line rounded-xl px-4">
-              <span className="font-display font-bold text-xl text-cyan">₦</span>
-              <input className="bg-transparent outline-none py-3.5 font-display font-bold text-2xl tnum w-full" inputMode="numeric" value={amount || ""} placeholder="0"
-                onChange={(e) => setAmount(Number(e.target.value.replace(/\D/g, "").slice(0, 7)))} />
+          <div className="space-y-4">
+            <div>
+              <span className="block text-[11px] font-bold tracking-widest text-mute uppercase mb-1.5">Amount</span>
+              <div className="flex items-center gap-2 bg-well border border-line rounded-xl px-4">
+                <span className="font-display font-bold text-xl text-cyan">₦</span>
+                <input className="bg-transparent outline-none py-3.5 font-display font-bold text-2xl tnum w-full" inputMode="numeric" value={amount || ""} placeholder="0"
+                  onChange={(e) => setAmount(Number(e.target.value.replace(/\D/g, "").slice(0, 7)))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {[1000, 2000, 5000, 10000, 20000, 50000, 100000, 250000].map((v) => (
+                <button key={v} onClick={() => setAmount(v)} className={`press py-2.5 rounded-xl border text-xs font-bold tnum transition-colors ${amount === v ? "bg-cyan text-cyanink border-cyan" : "bg-panel border-line text-sub hover:border-cyan/40"}`}>
+                  {v >= 1000 ? `${v / 1000}k` : v}
+                </button>
+              ))}
             </div>
           </div>
-          <div className="grid grid-cols-4 gap-2">
-            {[1000, 2000, 5000, 10000, 20000, 50000, 100000, 250000].map((v) => (
-              <button key={v} onClick={() => setAmount(v)} className={`press py-2.5 rounded-xl border text-xs font-bold tnum transition-colors ${amount === v ? "bg-cyan text-cyanink border-cyan" : "bg-panel border-line text-sub hover:border-cyan/40"}`}>
-                {v >= 1000 ? `${v / 1000}k` : v}
-              </button>
-            ))}
+          <div className="sticky bottom-0 -mx-5 px-5 pt-3 pb-1 mt-4 bg-raised border-t border-line/50 space-y-2.5">
+            <SBtn className="w-full" disabled={!amount || amount < 100} onClick={() => setStep("card")}>Continue <IChevR size={15} /></SBtn>
+            <p className="text-[10px] text-mute flex items-center justify-center gap-1.5"><ICard size={12} className="text-cyan shrink-0" /> Charged securely by Paystack. STARK never sees your full card number.</p>
           </div>
-          <SBtn className="w-full" disabled={!amount || amount < 100} onClick={() => setStep("card")}>Continue <IChevR size={15} /></SBtn>
-          <p className="text-[10px] text-mute flex items-center gap-1.5"><ICard size={12} className="text-cyan" /> Charged securely by Paystack. STARK never sees your full card number.</p>
         </>
       ) : (
         <>
-          <div className="card p-4 flex items-center gap-3 border-cyan/30">
-            <span className="w-10 h-10 rounded-xl bg-cyan/12 text-cyan grid place-items-center"><ICard size={20} /></span>
-            <div className="flex-1">
-              <p className="text-[13px] font-bold font-display tnum">{card.num}</p>
-              <p className="text-[10px] text-mute font-semibold">VISA •• 4081 • Paystack test card</p>
+          <div className="space-y-4">
+            <div className="card p-4 flex items-center gap-3 border-cyan/30">
+              <span className="w-10 h-10 rounded-xl bg-cyan/12 text-cyan grid place-items-center"><ICard size={20} /></span>
+              <div className="flex-1">
+                <p className="text-[13px] font-bold font-display tnum">{card.num}</p>
+                <p className="text-[10px] text-mute font-semibold">VISA •• 4081 • Paystack test card</p>
+              </div>
+              <span className="text-[10px] font-bold text-ok bg-ok/10 border border-ok/25 px-2 py-1 rounded-md">SAVED</span>
             </div>
-            <span className="text-[10px] font-bold text-ok bg-ok/10 border border-ok/25 px-2 py-1 rounded-md">SAVED</span>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Expiry" value={card.exp} onChange={(e) => setCard({ ...card, exp: e.target.value })} />
+              <Field label="CVV" type="password" value={card.cvv} onChange={(e) => setCard({ ...card, cvv: e.target.value })} />
+            </div>
+            <div className="bg-well border border-line rounded-xl px-4 py-3 flex justify-between items-center">
+              <span className="text-xs font-semibold text-sub">You will be charged</span>
+              <span className="font-display font-bold tnum">{money(amount)}</span>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Expiry" value={card.exp} onChange={(e) => setCard({ ...card, exp: e.target.value })} />
-            <Field label="CVV" type="password" value={card.cvv} onChange={(e) => setCard({ ...card, cvv: e.target.value })} />
+          <div className="sticky bottom-0 -mx-5 px-5 pt-3 pb-1 mt-4 bg-raised border-t border-line/50 space-y-2.5">
+            <SBtn className="w-full" loading={busy} onClick={onSubmit}>Pay {money0(amount)} securely</SBtn>
+            <button className="text-xs text-mute font-semibold mx-auto block press" onClick={() => setStep("amt")}>← Change amount</button>
           </div>
-          <div className="bg-well border border-line rounded-xl px-4 py-3 flex justify-between items-center">
-            <span className="text-xs font-semibold text-sub">You will be charged</span>
-            <span className="font-display font-bold tnum">{money(amount)}</span>
-          </div>
-          <SBtn className="w-full" loading={busy} onClick={onSubmit}>Pay {money0(amount)} securely</SBtn>
-          <button className="text-xs text-mute font-semibold mx-auto block press" onClick={() => setStep("amt")}>← Change amount</button>
         </>
       )}
     </div>

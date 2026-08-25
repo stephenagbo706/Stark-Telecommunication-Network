@@ -3,11 +3,13 @@ import { create } from "zustand";
 import { useStark, hashStr, initials } from "../lib/store";
 import { IBack, ICheck, IFinger, IInfo, ISpark, IX, StarkMark } from "./icons";
 
-/* Global PIN-pad presence flag — the bottom tab bar slides away while a
-   PIN sheet is open so the keypad is never covered. */
-export const usePinPad = create<{ open: boolean; setOpen: (v: boolean) => void }>((set) => ({
-  open: false,
-  setOpen: (v) => set({ open: v }),
+/* Global floating-layer presence counter — while any Sheet or PIN pad is
+   open, the bottom tab bar slides away so its controls are never covered.
+   Counter-based so overlapping layers (sheet → pin pad) nest correctly. */
+export const useFloatLayer = create<{ count: number; inc: () => void; dec: () => void }>((set) => ({
+  count: 0,
+  inc: () => set((s) => ({ count: s.count + 1 })),
+  dec: () => set((s) => ({ count: Math.max(0, s.count - 1) })),
 }));
 
 /* ---------------- navigation context ---------------- */
@@ -110,6 +112,12 @@ export function Field({ label, hint, error, ...props }: React.InputHTMLAttribute
 
 /* ---------------- bottom sheet / modal ---------------- */
 export function Sheet({ open, onClose, title, children }: { open: boolean; onClose: () => void; title?: string; children: React.ReactNode }) {
+  /* While a sheet is up the tab bar clears out, so its content — including
+     the Continue / Pay button — is never covered by the bottom menu. */
+  useEffect(() => {
+    if (open) useFloatLayer.getState().inc();
+    return () => { if (open) useFloatLayer.getState().dec(); };
+  }, [open]);
   if (!open) return null;
   return (
     <div className="absolute inset-0 z-40 flex flex-col justify-end">
@@ -117,9 +125,18 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
       <div className="relative a-sheet bg-raised border-t border-line rounded-t-3xl max-h-[88%] overflow-y-auto no-scrollbar">
         <div className="sticky top-0 bg-raised/95 backdrop-blur px-5 pt-3 pb-2 z-10">
           <div className="w-10 h-1 rounded-full bg-line mx-auto mb-3" />
-          {title && <h3 className="font-display font-bold text-lg">{title}</h3>}
+          <div className="flex items-start justify-between gap-3">
+            {title && <h3 className="font-display font-bold text-lg">{title}</h3>}
+            <button
+              onClick={onClose}
+              aria-label="Cancel"
+              className="press -mt-0.5 -mr-1 shrink-0 w-8 h-8 grid place-items-center rounded-lg border border-line text-mute hover:text-bad hover:border-bad/40 transition-colors"
+            >
+              <IX size={15} sw={2.4} />
+            </button>
+          </div>
         </div>
-        <div className="px-5 pb-8">{children}</div>
+        <div className="px-5 pb-9">{children}</div>
       </div>
     </div>
   );
@@ -136,8 +153,8 @@ export function PinPad({ open, onClose, onSubmit, title = "Enter transaction PIN
   useEffect(() => { if (pin.length === 4 && !busy) onSubmit(pin); }, [pin]);
   /* Tell the shell the keypad is up so the tab bar clears out of the way. */
   useEffect(() => {
-    usePinPad.getState().setOpen(open);
-    return () => usePinPad.getState().setOpen(false);
+    if (open) useFloatLayer.getState().inc();
+    return () => { if (open) useFloatLayer.getState().dec(); };
   }, [open]);
   if (!open) return null;
   const press = (d: string) => !busy && setPin((p) => (p.length < 4 ? p + d : p));

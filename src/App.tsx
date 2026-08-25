@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStark } from "./lib/store";
-import { NavProvider, Toasts, usePinPad, type Overlay, type TabId } from "./components/ui";
+import { NavProvider, Toasts, useFloatLayer, type Overlay, type TabId } from "./components/ui";
 import Auth from "./screens/Auth";
 import Home from "./screens/Home";
 import Wallet from "./screens/Wallet";
@@ -24,7 +24,7 @@ const TABS: { id: TabId; label: string; icon: (p: { size?: number; className?: s
 export default function App() {
   const authed = useStark((s) => s.authed);
   const theme = useStark((s) => s.theme);
-  const pinPadOpen = usePinPad((s) => s.open);
+  const pinPadOpen = useFloatLayer((s) => s.count > 0);
   const [booting, setBooting] = useState(true);
   const [tab, setTab] = useState<TabId>("home");
   const [stack, setStack] = useState<Overlay[]>([]);
@@ -116,7 +116,8 @@ export default function App() {
                   </div>
                 ))}
 
-                {/* tab bar — slides away while a PIN pad is open so the keypad is never covered */}
+                {/* tab bar — slides away while any sheet or PIN pad is open, so its
+                    Continue/Pay buttons and the keypad are never covered */}
                 <div
                   className={`absolute bottom-0 left-0 right-0 z-30 transition-all duration-300 ease-out ${
                     pinPadOpen ? "translate-y-[130%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100"
