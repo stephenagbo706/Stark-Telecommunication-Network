@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStark } from "../lib/store";
 import { Field, PinPad, SBtn, Scramble } from "../components/ui";
-import { IcoBolt, IChevR, ICheck, IPlay, IShield, StarkMark } from "../components/icons";
+import { IcoBolt, IChevR, ICheck, IPlay, IShield, IX, StarkMark } from "../components/icons";
 import AdShow from "../components/AdShow";
 import { AD_IMAGES as ADS } from "../lib/data";
+import { normalizeEmail, normalizePhone, isValidEmail, checkIdentity, formatPhone, IDENTITY_CODES, type IdentityCode } from "../lib/identity";
 
 type Mode = "welcome" | "login" | "unlock" | "register" | "pin" | "otp" | "reset" | "newpin";
 
 export default function Auth() {
-  const { login, register, loadDemo, profile, toast, updateProfile, notify } = useStark();
+  const { login, register, loadDemo, profile, toast, updateProfile, notify, accounts } = useStark();
   const [mode, setMode] = useState<Mode>("welcome");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -16,6 +17,7 @@ export default function Auth() {
   const [pinDraft, setPinDraft] = useState("");
   const [otpInput, setOtpInput] = useState("");
   const [resendIn, setResendIn] = useState(0);
+  const [dupCode, setDupCode] = useState<IdentityCode | null>(null);
   const otpCode = useMemo(() => String(Math.floor(100000 + Math.random() * 900000)), [mode]);
 
   useEffect(() => {
@@ -30,11 +32,23 @@ export default function Auth() {
     else toast("Signed in securely", "ok");
   };
 
+  /* §5–§6 — normalize as the user types so the uniqueness check matches the backend. */
+  const emailN = normalizeEmail(form.email);
+  const phoneN = normalizePhone(form.phone);
+  const identityCheck = useMemo(
+    () => (isValidEmail(form.email) && phoneN ? checkIdentity(emailN, phoneN, accounts) : null),
+    [form.email, form.phone, accounts, emailN, phoneN]
+  );
+  const dupExists = identityCheck !== null && !identityCheck.ok;
+
   const submitRegister = () => {
     setErr(null);
     if (form.name.trim().length < 2) return setErr("Enter your full name.");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return setErr("Enter a valid email address.");
-    if (form.phone.replace(/\D/g, "").length < 10) return setErr("Enter a valid Nigerian phone number.");
+    if (!isValidEmail(form.email)) return setErr("Enter a valid email address.");
+    if (!phoneN) return setErr("Enter a valid Nigerian phone number — e.g. 0803 000 0000.");
+    /* §9–§12 — one account per email & phone; PostgreSQL has the final say. */
+    if (identityCheck && !identityCheck.ok) { setErr(identityCheck.message); setDupCode(identityCheck.code); return; }
+    setDupCode(null);
     setMode("pin");
   };
 
@@ -42,7 +56,15 @@ export default function Auth() {
     setBusy(true);
     setTimeout(() => {
       if (otpInput !== otpCode) { setErr("That OTP doesn't match the demo SMS above."); setBusy(false); return; }
-      register({ ...form, pin: pinDraft });
+      const res = register({ ...form, pin: pinDraft });
+      if (!res.ok) {
+        /* Race-safe: the registry rejected the identity at the last moment. */
+        setErr(res.message);
+        setDupCode(res.code);
+        setMode("register");
+        setBusy(false);
+        return;
+      }
       toast("Account created — welcome to STARK", "ok");
     }, 900);
   };
@@ -205,9 +227,31 @@ export default function Auth() {
               <p className="text-xs text-mute mt-1">Your wallet is backed by a double-entry ledger from day one.</p>
             </div>
             <Field label="Full name" placeholder="Adaeze Okafor" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <Field label="Email" placeholder="you@example.com" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            <Field label="Phone number" placeholder="0803 000 0000" inputMode="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            {err && <p className="text-xs text-bad font-semibold bg-bad/10 border border-bad/30 rounded-lg px-3 py-2">{err}</p>}
+            <div>
+              <Field label="Email" placeholder="you@example.com" type="email" value={form.email} onChange={(e) => { setDupCode(null); setErr(null); setForm({ ...form, email: e.target.value }); }} />
+              {form.email.trim() && isValidEmail(form.email) && emailN !== form.email.trim().toLowerCase() && (
+                <p className="text-[10px] text-mute font-semibold mt-1">Stored as <span className="text-sub font-mono">{emailN}</span></p>
+              )}
+            </div>
+            <div>
+              <Field label="Phone number" placeholder="0803 000 0000" inputMode="tel" value={form.phone} onChange={(e) => { setDupCode(null); setErr(null); setForm({ ...form, phone: e.target.value }); }} />
+              {form.phone.replace(/\d/g, "").length >= 10 && phoneN && (
+                <p className="text-[10px] text-mute font-semibold mt-1">Nigerian format detected → <span className="text-sub font-mono">{formatPhone(phoneN)}</span></p>
+              )}
+            </div>
+
+            {dupExists && identityCheck && !identityCheck.ok && (
+              <div className="a-rise rounded-xl border border-warn/40 bg-warn/8 px-3.5 py-3">
+                <p className="text-xs font-semibold text-warn flex items-start gap-2"><IX size={14} className="shrink-0 mt-0.5" /> {identityCheck.message}</p>
+                {(identityCheck.code === IDENTITY_CODES.ACCOUNT_EXISTS || identityCheck.code === IDENTITY_CODES.PHONE_ALREADY_REGISTERED) && (
+                  <button className="press mt-2 text-xs font-bold text-cyanink bg-cyan px-3.5 py-2 rounded-lg" onClick={() => { setErr(null); setDupCode(null); setMode("login"); }}>
+                    Sign in to the existing account <IChevR size={13} className="inline -mt-0.5" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {err && !dupExists && <p className="text-xs text-bad font-semibold bg-bad/10 border border-bad/30 rounded-lg px-3 py-2">{err}</p>}
             <SBtn className="w-full" onClick={submitRegister}>Continue <IChevR size={16} /></SBtn>
             <button className="text-xs text-cyan font-semibold mx-auto block press" onClick={() => setMode("welcome")}>← Back</button>
           </div>

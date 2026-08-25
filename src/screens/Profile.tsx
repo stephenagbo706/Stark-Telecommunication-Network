@@ -234,16 +234,39 @@ export function Security() {
             {!p.frozen && <button onClick={() => store.logoutOthers()} className="press text-[11px] font-bold text-bad">Sign out others</button>}
           </div>
           <div className="card divide-y divide-line/70 overflow-hidden">
-            {store.devices.map((d) => (
-              <div key={d.id} className="flex items-center gap-3 px-4 py-3.5">
-                <span className="w-9 h-9 rounded-xl bg-well border border-line text-sub grid place-items-center"><IUser size={16} /></span>
-                <div className="flex-1">
-                  <p className="text-[13px] font-bold">{d.name} {d.current && <span className="text-[9px] font-bold text-ok bg-ok/10 border border-ok/25 px-1.5 py-0.5 rounded ml-1">THIS DEVICE</span>}</p>
-                  <p className="text-[10px] text-mute font-semibold">{d.platform} • active {timeAgo(d.lastActive)}</p>
+            {(store.sessions.length ? store.sessions : store.devices.map((d) => ({ id: d.id, device: d.name, platform: d.platform, ip: "", location: "", createdAt: d.lastActive, lastUsedAt: d.lastActive, current: d.current, trusted: false }))).map((s) => (
+              <div key={s.id} className="flex items-center gap-3 px-4 py-3.5">
+                <span className={`w-9 h-9 rounded-xl grid place-items-center border ${s.current ? "bg-cyan/12 text-cyan border-cyan/25" : "bg-well text-sub border-line"}`}><IUser size={16} /></span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-bold truncate">
+                    {s.device}
+                    {s.current && <span className="text-[9px] font-bold text-ok bg-ok/10 border border-ok/25 px-1.5 py-0.5 rounded ml-1">CURRENT</span>}
+                    {!s.current && !s.trusted && <span className="text-[9px] font-bold text-warn bg-warn/10 border border-warn/25 px-1.5 py-0.5 rounded ml-1">UNTRUSTED</span>}
+                  </p>
+                  <p className="text-[10px] text-mute font-semibold truncate">{s.platform}{s.location ? ` • ${s.location}` : ""} • active {timeAgo(s.lastUsedAt)}</p>
                 </div>
+                {!s.current && (
+                  <button onClick={() => store.revokeSession(s.id)} className="press shrink-0 text-[10px] font-bold text-bad border border-bad/30 rounded-lg px-2.5 py-1.5 hover:bg-bad/10">
+                    Revoke
+                  </button>
+                )}
               </div>
             ))}
           </div>
+          {store.audit.length > 0 && (
+            <div className="mt-3 card px-4 py-3.5">
+              <p className="text-[10px] font-bold tracking-widest text-mute mb-2.5">RECENT SECURITY EVENTS</p>
+              <div className="space-y-2">
+                {store.audit.slice(0, 4).map((a) => (
+                  <div key={a.id} className="flex items-center gap-2.5 text-[11px]">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${a.kind.includes("failed") ? "bg-bad" : a.kind.includes("new_device") ? "bg-warn" : "bg-ok"}`} />
+                    <span className="flex-1 text-sub font-semibold truncate">{a.detail}</span>
+                    <span className="text-[9px] text-mute font-mono shrink-0">{a.kind}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div>

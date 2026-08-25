@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { FEES, CASHBACK_RATE, SERVICE_META, type NetworkId } from "./data";
+import {
+  normalizeEmail, normalizePhone, checkIdentity, formatPhone,
+  IDENTITY_CODES, IDENTITY_MESSAGES,
+  type KnownAccount, type StarkSession, type AuditEvent, type AuditKind, type IdentityCode,
+} from "./identity";
 
 /* ---------------- types ---------------- */
 export type Service = "airtime" | "data" | "cable" | "electricity" | "exam" | "betting" | "sms" | "gift" | "funding" | "withdraw";
@@ -94,12 +99,21 @@ interface StarkState {
   theme: "dark" | "light";
   toasts: Toast[];
 
+  /* identity & multi-device (§2, §16–§18, §27) — PostgreSQL is the
+     authority in production; the preview mirrors the same rules. */
+  accounts: KnownAccount[];          // registered identities (one per email & phone)
+  sessions: StarkSession[];          // this account's live sessions
+  audit: AuditEvent[];               // immutable security audit trail
+
   toast: (msg: string, kind?: Toast["kind"]) => void;
   notify: (n: Omit<Notice, "id" | "ts" | "read">) => void;
 
-  register: (p: { name: string; phone: string; email: string; pin: string }) => void;
+  register: (p: { name: string; phone: string; email: string; pin: string }) =>
+    | { ok: true }
+    | { ok: false; code: IdentityCode; message: string };
   login: (phone: string, pin: string) => string | null;
   logout: () => void;
+  revokeSession: (id: string) => void;
   loadDemo: () => void;
 
   setAvatar: (dataUrl?: string) => void;
@@ -125,6 +139,14 @@ interface StarkState {
 }
 
 const entry = (kind: LedgerKind, amount: number, note: string, ref?: string): LedgerEntry => ({ id: uid(), ts: Date.now(), kind, amount, note, ref });
+const auditEv = (kind: AuditKind, detail: string): AuditEvent => ({ id: uid(), ts: Date.now(), kind, detail });
+
+const THIS_DEVICE = { name: "This browser", platform: "Web • Chrome", ip: "105.112.34.18", location: "Lagos, NG" };
+const newSession = (): StarkSession => ({
+  id: uid(), device: THIS_DEVICE.name, platform: THIS_DEVICE.platform,
+  ip: THIS_DEVICE.ip, location: THIS_DEVICE.location,
+  createdAt: Date.now(), lastUsedAt: Date.now(), current: true, trusted: true,
+});
 
 const DEMO_NAMES = ["CHIDERA EZE", "ADAEZE OKAFOR", "TUNDE BALOGUN", "AMINA BELLO", "EMEKA OBI", "FATIMA USMAN", "SEUN ADEYEMI", "Ngozi Anyanwu"];
 
@@ -144,6 +166,9 @@ export const useStark = create<StarkState>()(
       points: 0,
       theme: "dark",
       toasts: [],
+      accounts: [],
+      sessions: [],
+      audit: [],
 
       toast: (msg, kind = "info") => {
         const t: Toast = { id: uid(), msg, kind };
@@ -154,28 +179,81 @@ export const useStark = create<StarkState>()(
       notify: (n) => set((s) => ({ notifications: [{ ...n, id: uid(), ts: Date.now(), read: false }, ...s.notifications] })),
 
       register: ({ name, phone, email, pin }) => {
+        /* §5–§12 — normalize first, then enforce one-account-per-identity. */
+        const emailN = normalizeEmail(email);
+        const phoneN = normalizePhone(phone);
+        if (!phoneN) return { ok: false, code: IDENTITY_CODES.PHONE_ALREADY_REGISTERED, message: "Enter a valid Nigerian phone number." };
+
+        const check = checkIdentity(emailN, phoneN, get().accounts);
+        if (!check.ok) return check;
+
         const profile: Profile = {
-          name, phone, email, pin, emailVerified: false, phoneVerified: true, biometric: false, twoFA: false,
-          frozen: false, joinedAt: Date.now(), referralCode: `STARK-${name.slice(0, 3).toUpperCase()}${Math.floor(1000 + Math.random() * 9000)}`,
+          name: name.trim(), phone: phoneN, email: emailN, pin, emailVerified: false, phoneVerified: true, biometric: false, twoFA: false,
+          frozen: false, joinedAt: Date.now(), referralCode: `STARK-${name.trim().slice(0, 3).toUpperCase()}${Math.floor(1000 + Math.random() * 9000)}`,
           refEarned: 0, referrals: [],
         };
-        set({
+        const acct: KnownAccount = { id: uid(), name: profile.name, email: emailN, phone: phoneN, status: "active" };
+        set((s) => ({
           authed: true, profile, ledger: [], txs: [], beneficiaries: [], points: 0, tickets: [], subs: [],
+          accounts: [...s.accounts, acct],
+          sessions: [newSession()],
+          audit: [auditEv("account_created", `Account created for ${emailN} (${formatPhone(phoneN)})`), ...s.audit],
           notifications: [{ id: uid(), ts: Date.now(), read: false, kind: "info", title: "Welcome to STARK", body: "Your account is ready. Fund your wallet to start buying airtime, data, cable and electricity." }],
-          logins: [{ ts: Date.now(), device: "This browser", ip: "105.112.34.18", location: "Lagos, NG", status: "success" }],
-        });
+          logins: [{ ts: Date.now(), device: THIS_DEVICE.name, ip: THIS_DEVICE.ip, location: THIS_DEVICE.location, status: "success" }],
+        }));
+        return { ok: true };
       },
 
       login: (phone, pin) => {
         const p = get().profile;
         if (!p) return "No account found on this device. Create one or load the demo account.";
-        if (p.phone.replace(/\D/g, "").slice(-7) !== phone.replace(/\D/g, "").slice(-7)) return "That phone number does not match the account on this device.";
-        if (p.pin !== pin) return "Incorrect transaction PIN. Try again.";
-        set((s) => ({ authed: true, logins: [{ ts: Date.now(), device: "This browser", ip: "105.112.34.18", location: "Lagos, NG", status: "success" }, ...s.logins] }));
+        /* Match by canonical phone so 0803… / +234803… / 234803… all resolve to the SAME account (§6, §16). */
+        const want = normalizePhone(phone);
+        const have = normalizePhone(p.phone);
+        if (!want || want !== have) return "That phone number does not match the account on this device.";
+        if (p.frozen) return IDENTITY_MESSAGES.ACCOUNT_FROZEN;
+        if (p.pin !== pin) {
+          set((s) => ({
+            audit: [auditEv("login_failed", "Incorrect transaction PIN"), ...s.audit],
+            logins: [{ ts: Date.now(), device: THIS_DEVICE.name, ip: THIS_DEVICE.ip, location: THIS_DEVICE.location, status: "failed" }, ...s.logins],
+          }));
+          return "Incorrect transaction PIN. Try again.";
+        }
+
+        /* §16–§19 — a new device creates a new session, never a new account. */
+        const hasCurrent = get().sessions.some((x) => x.current);
+        const fresh = !hasCurrent;
+        set((s) => ({
+          authed: true,
+          sessions: [...s.sessions.filter((x) => !x.current).map((x) => ({ ...x, lastUsedAt: x.lastUsedAt })), newSession()],
+          audit: [
+            auditEv("login_success", `Signed in from ${THIS_DEVICE.name}`),
+            ...(fresh ? [auditEv("new_device_login" as AuditKind, `${THIS_DEVICE.name} • ${THIS_DEVICE.location}`)] : []),
+            ...s.audit,
+          ],
+          logins: [{ ts: Date.now(), device: THIS_DEVICE.name, ip: THIS_DEVICE.ip, location: THIS_DEVICE.location, status: "success" }, ...s.logins],
+        }));
+        if (fresh) get().notify({ kind: "security", title: "New device signed in", body: `${THIS_DEVICE.name} in ${THIS_DEVICE.location} signed into your Stark account. If this wasn't you, freeze the account from Security.` });
         return null;
       },
 
-      logout: () => set({ authed: false }),
+      logout: () => {
+        /* §21 — revoke this session only; the account, wallet and history stay intact. */
+        set((s) => ({
+          authed: false,
+          sessions: s.sessions.filter((x) => !x.current),
+          audit: [auditEv("logout", `Session revoked on ${THIS_DEVICE.name}`), ...s.audit],
+        }));
+      },
+
+      revokeSession: (id) => {
+        /* §22 — ownership is enforced server-side; the preview revokes by id. */
+        set((s) => ({
+          sessions: s.sessions.filter((x) => x.id !== id),
+          audit: [auditEv("session_revoked", "A session was revoked from Security → Devices"), ...s.audit],
+        }));
+        get().toast("Session revoked", "ok");
+      },
 
       loadDemo: () => {
         const now = Date.now();
@@ -268,6 +346,22 @@ export const useStark = create<StarkState>()(
             { ts: now - 3600000, device: "Pixel 8 Pro", ip: "105.112.34.18", location: "Lagos, NG", status: "success" },
             { ts: now - 26 * 3600000, device: "Chrome • Windows", ip: "197.210.64.9", location: "Lagos, NG", status: "success" },
             { ts: now - 3 * D, device: "Unknown • Linux", ip: "41.184.22.310", location: "Accra, GH", status: "failed" },
+          ],
+          /* The demo identity joins the registry — re-registering with the same
+             email or phone now correctly reports ACCOUNT_EXISTS. */
+          accounts: [
+            ...get().accounts.filter((a) => a.email !== "ada.okafor@gmail.com"),
+            { id: "usr-demo", name: "Adaeze Okafor", email: "ada.okafor@gmail.com", phone: "+2348034721189", status: "active" },
+          ],
+          sessions: [
+            { id: "ses-demo-1", device: "Pixel 8 Pro", platform: "Android 15 • STARK App", ip: "105.112.34.18", location: "Lagos, NG", createdAt: now - 3 * D, lastUsedAt: now, current: true, trusted: true },
+            { id: "ses-demo-2", device: "Chrome • Windows", platform: "Web session", ip: "197.210.64.9", location: "Lagos, NG", createdAt: now - 26 * 3600000, lastUsedAt: now - 26 * 3600000, current: false, trusted: false },
+          ],
+          audit: [
+            auditEv("login_success", "Signed in from Pixel 8 Pro"),
+            auditEv("new_device_login", "Chrome • Windows • Lagos, NG"),
+            auditEv("login_failed", "Unknown device • Accra, GH — wrong PIN"),
+            auditEv("account_created", "Account created for ada.okafor@gmail.com (+234 803 472 1189)"),
           ],
         });
         get().toast("Demo account loaded — PIN 1234", "ok");
@@ -430,7 +524,7 @@ export const useStark = create<StarkState>()(
       partialize: (s) => ({
         authed: s.authed, profile: s.profile, ledger: s.ledger, txs: s.txs, beneficiaries: s.beneficiaries,
         notifications: s.notifications, tickets: s.tickets, subs: s.subs, devices: s.devices, logins: s.logins,
-        points: s.points, theme: s.theme,
+        points: s.points, theme: s.theme, accounts: s.accounts, sessions: s.sessions, audit: s.audit,
       }),
     }
   )

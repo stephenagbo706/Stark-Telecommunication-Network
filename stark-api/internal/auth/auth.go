@@ -108,10 +108,15 @@ func verifySecret(secret, encoded string) bool {
 func (m *Module) Routes(r *chi.Mux) {
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.Post("/register", m.handleRegister)
+		r.Post("/register/v2", m.RegisterV2) // identity-hardened (§7–§14)
 		r.Post("/login", m.handleLogin)
+		r.Post("/login/v2", m.LoginV2) // email-or-phone, multi-device (§15–§20)
 		r.Post("/otp/verify", m.handleOTPVerify)
 		r.Post("/refresh", m.handleRefresh)
 		r.Post("/logout", m.Auth(m.handleLogout))
+		// Session management (§22, §28) — ownership enforced server-side.
+		r.With(m.Auth).Get("/sessions", m.ListSessions)
+		r.With(m.Auth).Delete("/sessions/{session_id}", m.RevokeSession)
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
@@ -127,6 +132,9 @@ func (m *Module) Routes(r *chi.Mux) {
 			r.Post("/security/unfreeze", m.handleUnfreeze)
 			r.Get("/devices", m.handleDevices)
 			r.Delete("/devices/others", m.handleLogoutOthers)
+			// Push-token binding per device (§28) — upsert, never duplicate.
+			r.Post("/devices/fcm-token", m.RegisterFCMToken)
+			r.Put("/devices/fcm-token", m.RegisterFCMToken)
 		})
 	})
 }
