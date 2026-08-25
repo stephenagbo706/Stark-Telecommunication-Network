@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStark } from "./lib/store";
-import { NavProvider, Toasts, type Overlay, type TabId } from "./components/ui";
+import { NavProvider, Toasts, usePinPad, type Overlay, type TabId } from "./components/ui";
 import Auth from "./screens/Auth";
 import Home from "./screens/Home";
 import Wallet from "./screens/Wallet";
@@ -24,6 +24,7 @@ const TABS: { id: TabId; label: string; icon: (p: { size?: number; className?: s
 export default function App() {
   const authed = useStark((s) => s.authed);
   const theme = useStark((s) => s.theme);
+  const pinPadOpen = usePinPad((s) => s.open);
   const [booting, setBooting] = useState(true);
   const [tab, setTab] = useState<TabId>("home");
   const [stack, setStack] = useState<Overlay[]>([]);
@@ -115,8 +116,12 @@ export default function App() {
                   </div>
                 ))}
 
-                {/* tab bar */}
-                <div className="absolute bottom-0 left-0 right-0 z-30">
+                {/* tab bar — slides away while a PIN pad is open so the keypad is never covered */}
+                <div
+                  className={`absolute bottom-0 left-0 right-0 z-30 transition-all duration-300 ease-out ${
+                    pinPadOpen ? "translate-y-[130%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100"
+                  }`}
+                >
                   <div className="mx-3 mb-3 rounded-2xl border border-line bg-raised/95 backdrop-blur px-2 py-2 flex items-center shadow-[0_-8px_40px_-12px_rgba(0,0,0,0.6)]">
                     {TABS.map((t) => {
                       const active = tab === t.id && stack.length === 0;

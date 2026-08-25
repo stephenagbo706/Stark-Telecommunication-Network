@@ -1,6 +1,14 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { create } from "zustand";
 import { useStark, hashStr, initials } from "../lib/store";
 import { IBack, ICheck, IFinger, IInfo, ISpark, IX, StarkMark } from "./icons";
+
+/* Global PIN-pad presence flag — the bottom tab bar slides away while a
+   PIN sheet is open so the keypad is never covered. */
+export const usePinPad = create<{ open: boolean; setOpen: (v: boolean) => void }>((set) => ({
+  open: false,
+  setOpen: (v) => set({ open: v }),
+}));
 
 /* ---------------- navigation context ---------------- */
 export type TabId = "home" | "wallet" | "ai" | "activity" | "profile";
@@ -126,6 +134,11 @@ export function PinPad({ open, onClose, onSubmit, title = "Enter transaction PIN
   const profile = useStark((s) => s.profile);
   useEffect(() => { if (open) { setPin(""); } }, [open, error]);
   useEffect(() => { if (pin.length === 4 && !busy) onSubmit(pin); }, [pin]);
+  /* Tell the shell the keypad is up so the tab bar clears out of the way. */
+  useEffect(() => {
+    usePinPad.getState().setOpen(open);
+    return () => usePinPad.getState().setOpen(false);
+  }, [open]);
   if (!open) return null;
   const press = (d: string) => !busy && setPin((p) => (p.length < 4 ? p + d : p));
   return (
