@@ -222,6 +222,34 @@ func (m *Module) handleRegister(w http.ResponseWriter, r *http.Request) {
 		platform.WriteErr(w, r, 500, "internal", "We couldn't open your ledger. Please retry.")
 		return
 	}
+	// Referral attribution (§8): resolve the referrer by code and record the
+	// relationship atomically with account creation. Status starts at
+	// REGISTERED — no reward until a qualifying purchase succeeds (§2).
+	// Constraints (uq_referrals_referred, no_self_referral) make this safe
+	// against duplicates and self-referral; the dup-check blocks accounts
+	// that share the referrer's email or phone (§25).
+	if code := strings.ToUpper(strings.TrimSpace(req.Referral)); code != "" {
+		var referrerID string
+		if err := tx.QueryRow(r.Context(),
+			`SELECT user_id FROM profiles WHERE referral_code=$1`, code).Scan(&referrerID); err == nil && referrerID != userID {
+			var dup bool
+			_ = tx.QueryRow(r.Context(),
+				`SELECT EXISTS(SELECT 1 FROM users u JOIN profiles p ON p.user_id=u.id
+				  WHERE u.id=$1 AND (lower(u.email)=$2 OR p.phone=$3))`, referrerID, req.Email, req.Phone).Scan(&dup)
+			if !dup {
+				if _, err := tx.Exec(r.Context(),
+					`INSERT INTO referrals (id, referrer_user_id, referred_user_id, referral_code, status)
+					 VALUES ($1,$2,$3,$4,'REGISTERED') ON CONFLICT (referred_user_id) DO NOTHING`,
+					uuid.NewString(), referrerID, userID, code); err == nil {
+					_, _ = tx.Exec(r.Context(),
+						`INSERT INTO referral_events (id, referral_id, event_type, metadata)
+						 SELECT $1, r.id, 'REGISTERED', jsonb_build_object('referred_user', $2::text)
+						   FROM referrals r WHERE r.referred_user_id=$3`,
+						uuid.NewString(), userID, userID)
+				}
+			}
+		}
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		platform.WriteErr(w, r, 500, "internal", "We couldn't finish creating your account. Please retry.")
 		return

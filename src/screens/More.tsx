@@ -6,7 +6,8 @@ import {
   validateTicket, buildSupportMessage, buildWhatsAppUrl, buildWhatsAppWebUrl,
   launchWhatsApp, copySupportMessage, nextTicketId, STARK_WHATSAPP_DISPLAY,
 } from "../lib/whatsapp";
-import { IBell, ICheck, IChevD, IChevR, ICopy, IGauge, IHeadset, IInfo, ISearch, IShield, IStar, ITv, IUsers, IWallet, IWifi, IX, IArrowUR, IData, IcoSignal, IMeter, ISms, ITicket, ITarget, IGift, IPlus } from "../components/icons";
+import { useReferrals, STATUS_LABEL, statusHue, MIN_TRANSFER_KOBO } from "../lib/referrals";
+import { IBell, ICheck, IChevD, IChevR, ICopy, IGauge, IHeadset, IInfo, ISearch, IShield, IStar, ITv, IUsers, IWallet, IWifi, IX, IArrowUR, IData, IcoSignal, IMeter, ISms, ITicket, ITarget, IGift, IPlus, IShare, IRefresh } from "../components/icons";
 
 const KIND_ICON: Record<string, React.ReactNode> = {
   success: <ICheck size={16} />, error: <IX size={16} />, info: <IInfo size={16} />, security: <IShield size={16} />, reward: <IStar size={16} />,
@@ -48,51 +49,135 @@ export function Notifications() {
 }
 
 /* ================= referrals ================= */
+function PipeBtn({ label, onClick, primary }: { label: string; onClick: () => void; primary?: boolean }) {
+  return (
+    <button onClick={onClick}
+      className={`press text-[9px] font-bold px-2.5 py-1.5 rounded-lg border transition-colors ${
+        primary ? "bg-cyan text-cyanink border-cyan hover:brightness-110"
+                : "bg-well text-sub border-line hover:text-cyan hover:border-cyan/40"}`}>
+      {label}
+    </button>
+  );
+}
+
 export function Referrals() {
   const nav = useNav();
   const store = useStark();
   const p = store.profile!;
-  const link = `https://stark.app/r/${p.referralCode}`;
-  const copy = (v: string, l: string) => { navigator.clipboard?.writeText(v); store.toast(`${l} copied`, "ok"); };
+  const ref = useReferrals();
+  const stats = ref.stats();
+  const link = stats.referralLink || `https://stark.app/r/${p.referralCode}`;
+
+  useEffect(() => { ref.load(p.referralCode); /* eslint-disable-next-line */ }, []);
+
+  const copy = async (v: string, msg: string) => {
+    try { await navigator.clipboard.writeText(v); store.toast(msg, "ok"); }
+    catch { store.toast("Couldn't access the clipboard", "bad"); }
+  };
+
+  /* §6 — native share with the real referral link. */
+  const share = async () => {
+    const text = `Join me on Stark Telecommunication.\n\nUse my referral link:\n${link}`;
+    const navShare = navigator as Navigator & { share?: (d: { title: string; text: string }) => Promise<void> };
+    if (navShare.share) {
+      try { await navShare.share({ title: "Stark Telecommunication", text }); return; }
+      catch { /* user dismissed — fall through to copy */ }
+    }
+    copy(link, "Referral link copied!");
+  };
+
+  const withdraw = () => {
+    const res = ref.transferToWallet();
+    store.toast(res.message, res.ok ? "ok" : "bad");
+    if (res.ok) store.notify({ kind: "success", title: "Referral earnings transferred", body: res.message });
+  };
+
   return (
     <div className="h-full flex flex-col">
-      <ScreenHeader title="Referrals" sub="Earn ₦500 per active friend" onBack={nav.pop} />
+      <ScreenHeader title="Referrals" sub="Earn ₦500 per active friend" onBack={nav.pop}
+        right={<button className="press w-9 h-9 rounded-xl bg-panel border border-line grid place-items-center text-sub hover:text-cyan" onClick={() => ref.load(p.referralCode)} aria-label="Refresh"><IRefresh size={16} /></button>} />
       <div className="flex-1 overflow-y-auto no-scrollbar px-5 pb-28 space-y-4">
+        {ref.loading ? (
+          <div className="space-y-3">{[150, 64, 64, 120].map((h, i) => <div key={i} className="card a-pulse" style={{ height: h }} />)}</div>
+        ) : ref.error ? (
+          <div className="card p-6 text-center">
+            <p className="text-[13px] font-bold">{ref.error}</p>
+            <SBtn className="mt-3" onClick={() => ref.load(p.referralCode)}>Retry</SBtn>
+          </div>
+        ) : (
+          <>
         <div className="card p-5 relative overflow-hidden border-ok/30">
           <div className="absolute -right-8 -top-8 text-ok/10"><IUsers size={130} sw={1} /></div>
           <p className="text-[10px] font-bold tracking-widest text-ok">YOUR CODE</p>
           <div className="flex items-center gap-2 mt-1.5">
-            <span className="font-display font-bold text-3xl tracking-wide">{p.referralCode}</span>
-            <button className="press text-ok" onClick={() => copy(p.referralCode, "Code")}><ICopy size={17} /></button>
+            <span className="font-display font-bold text-3xl tracking-wide">{stats.referralCode || p.referralCode}</span>
+            <button className="press text-ok" onClick={() => copy(stats.referralCode || p.referralCode, "Referral code copied!")}><ICopy size={17} /></button>
           </div>
           <div className="flex items-center gap-2 mt-3 bg-well border border-line rounded-xl px-3 py-2.5">
             <span className="text-[11px] font-mono text-sub truncate flex-1">{link}</span>
-            <button className="press shrink-0 text-[10px] font-bold text-cyanink bg-cyan px-3 py-1.5 rounded-lg" onClick={() => copy(link, "Link")}>COPY LINK</button>
+            <button className="press shrink-0 text-[10px] font-bold text-cyanink bg-cyan px-3 py-1.5 rounded-lg" onClick={() => copy(link, "Referral link copied!")}>COPY LINK</button>
           </div>
-          <div className="grid grid-cols-3 gap-2 mt-4">
-            {[["3", "Invited"], ["2", "Active"], [money0(p.refEarned), "Earned"]].map(([v, l]) => (
-              <div key={l} className="bg-well/80 border border-line rounded-xl px-3 py-2.5 text-center">
-                <p className="font-display font-bold text-[15px] tnum">{v}</p>
-                <p className="text-[9px] font-bold tracking-widest text-mute">{l.toUpperCase()}</p>
+          <button onClick={share} className="press mt-2 w-full flex items-center justify-center gap-2 bg-well border border-line rounded-xl px-3 py-2.5 text-[11px] font-bold text-sub hover:text-cyan hover:border-cyan/40 transition-colors">
+            <IShare size={15} /> SHARE REFERRAL LINK
+          </button>
+          {/* §19/§21 — dynamic stats from the referral ledger, never hardcoded */}
+          <div className="grid grid-cols-4 gap-2 mt-4">
+            {[
+              [String(stats.invited), "Invited"],
+              [String(stats.active), "Active"],
+              [money0(stats.earnedKobo), "Earned"],
+              [money0(stats.pendingKobo), "Pending"],
+            ].map(([v, l]) => (
+              <div key={l} className="bg-well/80 border border-line rounded-xl px-2 py-2.5 text-center">
+                <p className="font-display font-bold text-[14px] tnum">{v}</p>
+                <p className="text-[8px] font-bold tracking-widest text-mute">{l.toUpperCase()}</p>
               </div>
             ))}
           </div>
+          {/* §27/§28 — available referral earnings → transfer to wallet */}
+          <div className="flex items-center justify-between gap-3 mt-4 bg-ok/8 border border-ok/25 rounded-xl px-3.5 py-3">
+            <div>
+              <p className="text-[9px] font-bold tracking-widest text-ok">AVAILABLE EARNINGS</p>
+              <p className="font-display font-bold text-lg tnum">{money0(ref.availableKobo)}</p>
+            </div>
+            <SBtn small onClick={withdraw} disabled={ref.availableKobo < MIN_TRANSFER_KOBO}>To wallet</SBtn>
+          </div>
         </div>
 
+        {/* §20 — referral history with real statuses + reward state */}
         <div className="card divide-y divide-line/70 overflow-hidden">
-          {p.referrals.map((r) => (
-            <div key={r.name} className="flex items-center gap-3 px-4 py-3.5">
-              <Avatar name={r.name} size={36} />
-              <div className="flex-1">
-                <p className="text-[13px] font-bold">{r.name}</p>
-                <p className="text-[10px] text-mute font-semibold">Joined {fmtDate(r.date)}</p>
+          {ref.records.map((r) => (
+            <div key={r.id} className="px-4 py-3.5">
+              <div className="flex items-center gap-3">
+                <Avatar name={r.referredName} size={36} />
+                <div className="flex-1">
+                  <p className="text-[13px] font-bold">{r.referredName}</p>
+                  <p className="text-[10px] text-mute font-semibold">Joined {fmtDate(r.createdAt)}{r.qualifyingTxRef ? ` • ${r.qualifyingTxRef.slice(4, 12)}` : ""}</p>
+                </div>
+                <div className="text-right">
+                  <span className="inline-block text-[9px] font-bold px-2 py-0.5 rounded-full border"
+                    style={{ color: statusHue(r.status), borderColor: `${statusHue(r.status)}55`, background: `${statusHue(r.status)}14` }}>
+                    {STATUS_LABEL[r.status]}
+                  </span>
+                  <p className="text-[11px] font-bold tnum mt-1" style={{ color: r.rewardKobo > 0 && ["APPROVED", "PAID"].includes(r.rewardStatus) ? "var(--st-ok)" : "var(--st-mute)" }}>
+                    {r.rewardKobo > 0 ? `+${money0(r.rewardKobo)}` : r.status === "FUNDED" ? "awaiting 1st purchase" : "—"}
+                  </p>
+                </div>
               </div>
-              <div className="text-right">
-                <StatusBadge status={r.status} />
-                <p className="text-[11px] font-bold tnum mt-1 text-ok">{r.earned ? `+${money0(r.earned)}` : "pending"}</p>
-              </div>
+              {/* Demo of the server-side qualification pipeline (§40) */}
+              {(r.status === "REGISTERED" || r.status === "VERIFIED" || r.status === "FUNDED") && (
+                <div className="flex gap-1.5 mt-2.5 ml-[48px]">
+                  {r.status === "REGISTERED" && <PipeBtn label="Verify phone" onClick={() => ref.advance(r.id, "verify")} />}
+                  {(r.status === "REGISTERED" || r.status === "VERIFIED") && <PipeBtn label="Fund wallet" onClick={() => ref.advance(r.id, "fund")} />}
+                  {r.status === "FUNDED" && (<>
+                    <PipeBtn label="1st purchase ✓" onClick={() => { ref.advance(r.id, "purchase"); store.notify({ kind: "reward", title: "🎉 Referral reward", body: `${r.referredName} is now an active Stark user. You earned ₦500.` }); store.toast("Referral activated — ₦500 credited via ledger", "ok"); }} primary />
+                    <PipeBtn label="Purchase failed" onClick={() => { ref.advance(r.id, "fail-purchase"); store.toast("No activation — the qualifying purchase failed", "bad"); }} />
+                  </>)}
+                </div>
+              )}
             </div>
           ))}
+          <p className="px-4 py-2.5 text-[9px] text-mute leading-relaxed bg-well/50">Pipeline buttons replay the Go activation worker (§40): verify → fund → qualifying purchase. Rewards post to the ledger only on a SUCCESSFUL purchase.</p>
         </div>
 
         <div className="card p-4">
@@ -109,6 +194,8 @@ export function Referrals() {
           ))}
           <p className="text-[9px] text-mute leading-relaxed mt-3 border-t border-line pt-3">Self-referrals, duplicate accounts and device farming are detected by fraud scoring and rewards are withheld.</p>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

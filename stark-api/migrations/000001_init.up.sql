@@ -79,7 +79,8 @@ CREATE TABLE ledger_accounts (
   id       UUID PRIMARY KEY,
   user_id  UUID REFERENCES users(id) ON DELETE CASCADE, -- NULL = system account
   kind     TEXT NOT NULL CHECK (kind IN
-           ('WALLET','WALLET_RESERVE','CASHBACK','REWARDS','SETTLEMENT','PAYSTACK_CLEARING','FEE')),
+           ('WALLET','WALLET_RESERVE','CASHBACK','REWARDS','SETTLEMENT','PAYSTACK_CLEARING','FEE',
+            'REFERRAL','REFERRAL_POOL')),
   currency TEXT NOT NULL DEFAULT 'NGN',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -239,14 +240,71 @@ CREATE TABLE subscriptions (
 );
 CREATE INDEX idx_subs_renew ON subscriptions (auto_renew, expires_at);
 
+/* ---------------- referral engine (§9–§11) ---------------- */
+
+-- One row per referred user. Statuses follow the qualification
+-- pipeline; a referral can only ever move toward a terminal state.
 CREATE TABLE referrals (
-  id           UUID PRIMARY KEY,
-  referrer_id  UUID NOT NULL REFERENCES users(id),
-  referred_id  UUID NOT NULL UNIQUE REFERENCES users(id),
-  status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','qualified','rejected')),
-  reward_kobo  BIGINT NOT NULL DEFAULT 0,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  id               UUID PRIMARY KEY,
+  referrer_user_id UUID NOT NULL REFERENCES users(id),
+  referred_user_id UUID NOT NULL REFERENCES users(id),
+  referral_code    TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'REGISTERED'
+                   CHECK (status IN ('REGISTERED','VERIFIED','FUNDED','ACTIVE',
+                                     'REWARDED','PENDING_REVIEW','REJECTED','EXPIRED')),
+  risk             TEXT NOT NULL DEFAULT 'LOW' CHECK (risk IN ('LOW','MEDIUM','HIGH')),
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  activated_at     TIMESTAMPTZ,
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- A referred user can only ever belong to ONE referrer (§37), and a
+-- referrer can never refer themselves (§25).
+CREATE UNIQUE INDEX uq_referrals_referred ON referrals (referred_user_id);
+CREATE INDEX idx_referrals_referrer ON referrals (referrer_user_id, status);
+CREATE INDEX idx_referrals_code     ON referrals (referral_code);
+ALTER TABLE referrals ADD CONSTRAINT no_self_referral
+  CHECK (referrer_user_id <> referred_user_id);
+
+-- Exactly ONE reward per referral (§18, §37). The reward is a financial
+-- record; its lifecycle is PENDING → APPROVED/REJECTED → PAID.
+CREATE TABLE referral_rewards (
+  id               UUID PRIMARY KEY,
+  referral_id      UUID NOT NULL REFERENCES referrals(id),
+  user_id          UUID NOT NULL REFERENCES users(id),   -- the referrer being paid
+  amount_kobo      BIGINT NOT NULL CHECK (amount_kobo > 0),
+  status           TEXT NOT NULL DEFAULT 'PENDING'
+                   CHECK (status IN ('PENDING','APPROVED','REJECTED','PAID')),
+  ledger_reference TEXT,                                  -- REF-XXXXXXXX (§17)
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  approved_at      TIMESTAMPTZ,
+  paid_at          TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX uq_referral_rewards_referral ON referral_rewards (referral_id);
+CREATE INDEX idx_referral_rewards_user ON referral_rewards (user_id, status);
+
+-- Immutable audit trail of every referral lifecycle event (§11).
+CREATE TABLE referral_events (
+  id          UUID PRIMARY KEY,
+  referral_id UUID NOT NULL REFERENCES referrals(id),
+  event_type  TEXT NOT NULL
+              CHECK (event_type IN ('LINK_OPENED','REGISTERED','VERIFIED','FUNDED',
+                                    'QUALIFYING_TRANSACTION','ACTIVATED','REWARD_CREATED',
+                                    'REWARD_APPROVED','REWARD_REJECTED','REWARD_PAID')),
+  metadata    JSONB NOT NULL DEFAULT '{}',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_referral_events_referral ON referral_events (referral_id, created_at);
+
+-- Server-side referral configuration (§12, §30) — never hardcoded in clients.
+CREATE TABLE referral_config (
+  id                     INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  reward_kobo            BIGINT NOT NULL DEFAULT 50000,        -- ₦500
+  qualifying_services    TEXT[] NOT NULL DEFAULT '{airtime,data,cable,electricity}',
+  min_qualifying_kobo    BIGINT NOT NULL DEFAULT 10000,        -- ₦100 minimum purchase
+  campaign_enabled       BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO referral_config (id) VALUES (1);
 
 CREATE TABLE rewards (
   id         UUID PRIMARY KEY,
@@ -378,7 +436,8 @@ CREATE TRIGGER trg_tx_updated       BEFORE UPDATE ON transactions FOR EACH ROW E
 INSERT INTO ledger_accounts (id, user_id, kind, currency) VALUES
   (gen_random_uuid(), NULL, 'SETTLEMENT', 'NGN'),
   (gen_random_uuid(), NULL, 'PAYSTACK_CLEARING', 'NGN'),
-  (gen_random_uuid(), NULL, 'FEE', 'NGN');
+  (gen_random_uuid(), NULL, 'FEE', 'NGN'),
+  (gen_random_uuid(), NULL, 'REFERRAL_POOL', 'NGN');   -- marketing liability funding referral rewards
 
 -- +goose Down
 -- Rename this file to 000001_init.sql for Goose's single-file convention.

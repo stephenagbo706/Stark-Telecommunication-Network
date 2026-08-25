@@ -62,6 +62,9 @@ dependencies:
   image_cropper: ^7.0.5
   mobile_scanner: ^5.1.1
 
+  # Native share sheet (referrals)
+  share_plus: ^10.0.0
+
   # WhatsApp Help Center — opens the support chat externally.
   # The user always reviews the prepared message and taps Send.
   url_launcher: ^6.3.0

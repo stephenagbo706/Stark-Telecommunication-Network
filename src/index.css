@@ -140,6 +140,7 @@ body {
 .a-spin { animation: kf-spin 9s linear infinite; }
 .a-breathe { animation: kf-breathe 3.2s ease-in-out infinite; }
 .a-kenburns { animation: kf-kenburns 7s ease-out forwards; }
+.a-pulse { animation: kf-pulse 1.4s ease-in-out infinite; background: var(--st-raised); }
 .a-adfill { animation-name: kf-adfill; animation-timing-function: linear; animation-fill-mode: forwards; }
 .newsline-track { animation-duration: 34s; }
 .newsline-track:hover { animation-play-state: paused; }

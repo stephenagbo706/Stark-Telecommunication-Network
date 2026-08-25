@@ -15,6 +15,7 @@ import (
 	"stark-api/internal/auth"
 	"stark-api/internal/finance"
 	"stark-api/internal/platform"
+	"stark-api/internal/referrals"
 	"stark-api/internal/support"
 )
 
@@ -51,12 +52,16 @@ func main() {
 	authMod := auth.New(cfg, db, rdb, log)
 	finMod := finance.New(cfg, db, rdb, log)
 	supportMod := support.New(db, log)
+	referralMod := referrals.New(db, finMod, log)
 	finance.SetAuthMiddleware(authMod.Auth)
 	support.SetAuthMiddleware(authMod.Auth)
+	referrals.SetAuthMiddleware(authMod.Auth)
 
-	// Background workers: reconciliation, provider health, renewals.
+	// Background workers: reconciliation, provider health, renewals and
+	// the referral activator (qualifying-purchase → reward pipeline, §38).
 	go finMod.RunReconciler(ctx, 60*time.Second)
 	go finMod.RunProviderHealth(ctx, 45*time.Second)
+	go referralMod.RunActivator(ctx, 30*time.Second)
 
 	if *workerOnly {
 		log.Info("worker mode: HTTP listener disabled")
@@ -68,6 +73,7 @@ func main() {
 	authMod.Routes(mux)
 	finMod.Routes(mux)
 	supportMod.Routes(mux)
+	referralMod.Routes(mux)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
