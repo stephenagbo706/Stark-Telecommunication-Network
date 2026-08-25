@@ -244,7 +244,8 @@ export default function Auth() {
               <div className="a-rise rounded-xl border border-warn/40 bg-warn/8 px-3.5 py-3">
                 <p className="text-xs font-semibold text-warn flex items-start gap-2"><IX size={14} className="shrink-0 mt-0.5" /> {identityCheck.message}</p>
                 {(identityCheck.code === IDENTITY_CODES.ACCOUNT_EXISTS || identityCheck.code === IDENTITY_CODES.PHONE_ALREADY_REGISTERED) && (
-                  <button className="press mt-2 text-xs font-bold text-cyanink bg-cyan px-3.5 py-2 rounded-lg" onClick={() => { setErr(null); setDupCode(null); setMode("login"); }}>
+                  <button className="press mt-2 text-xs font-bold text-cyanink bg-cyan px-3.5 py-2 rounded-lg"
+                    onClick={() => { setErr(null); setDupCode(null); if (phoneN) setForm((f) => ({ ...f, phone: phoneN })); setMode("login"); }}>
                     Sign in to the existing account <IChevR size={13} className="inline -mt-0.5" />
                   </button>
                 )}

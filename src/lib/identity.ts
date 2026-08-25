@@ -120,7 +120,11 @@ export interface StarkSession {
 export type AuditKind =
   | "account_created" | "login_success" | "login_failed" | "new_device_login"
   | "logout" | "session_revoked" | "pin_changed" | "pin_reset"
-  | "account_frozen" | "account_unfrozen";
+  | "account_frozen" | "account_unfrozen"
+  /* §24 — blocked duplicate registration attempts are security events */
+  | "duplicate_email_registration_attempt"
+  | "duplicate_phone_registration_attempt"
+  | "identity_conflict_registration_attempt";
 
 export interface AuditEvent {
   id: string;

@@ -6,6 +6,7 @@ import {
   IDENTITY_CODES, IDENTITY_MESSAGES,
   type KnownAccount, type StarkSession, type AuditEvent, type AuditKind, type IdentityCode,
 } from "./identity";
+import { useIdentityRegistry } from "./registry";
 
 /* ---------------- types ---------------- */
 export type Service = "airtime" | "data" | "cable" | "electricity" | "exam" | "betting" | "sms" | "gift" | "funding" | "withdraw";
@@ -184,8 +185,17 @@ export const useStark = create<StarkState>()(
         const phoneN = normalizePhone(phone);
         if (!phoneN) return { ok: false, code: IDENTITY_CODES.PHONE_ALREADY_REGISTERED, message: "Enter a valid Nigerian phone number." };
 
-        const check = checkIdentity(emailN, phoneN, get().accounts);
-        if (!check.ok) return check;
+        /* The GLOBAL registry (mirror of the shared users table) is checked —
+           not this device's local state. Blocked attempts become §24 audit events. */
+        const check = checkIdentity(emailN, phoneN, useIdentityRegistry.getState().identities);
+        if (!check.ok) {
+          const kind: AuditKind =
+            check.code === IDENTITY_CODES.ACCOUNT_EXISTS ? "duplicate_email_registration_attempt"
+            : check.code === IDENTITY_CODES.PHONE_ALREADY_REGISTERED ? "duplicate_phone_registration_attempt"
+            : "identity_conflict_registration_attempt";
+          set((s) => ({ audit: [auditEv(kind, `Blocked: ${check.message}`), ...s.audit] }));
+          return check;
+        }
 
         const profile: Profile = {
           name: name.trim(), phone: phoneN, email: emailN, pin, emailVerified: false, phoneVerified: true, biometric: false, twoFA: false,
@@ -193,6 +203,9 @@ export const useStark = create<StarkState>()(
           refEarned: 0, referrals: [],
         };
         const acct: KnownAccount = { id: uid(), name: profile.name, email: emailN, phone: phoneN, status: "active" };
+        /* Persist the identity to the GLOBAL registry (the users-table mirror)
+           BEFORE flipping local state — the registry is the source of truth. */
+        useIdentityRegistry.getState().add(acct);
         set((s) => ({
           authed: true, profile, ledger: [], txs: [], beneficiaries: [], points: 0, tickets: [], subs: [],
           accounts: [...s.accounts, acct],
@@ -524,11 +537,19 @@ export const useStark = create<StarkState>()(
       partialize: (s) => ({
         authed: s.authed, profile: s.profile, ledger: s.ledger, txs: s.txs, beneficiaries: s.beneficiaries,
         notifications: s.notifications, tickets: s.tickets, subs: s.subs, devices: s.devices, logins: s.logins,
-        points: s.points, theme: s.theme, accounts: s.accounts, sessions: s.sessions, audit: s.audit,
+        /* `accounts` deliberately NOT persisted here — the identity registry
+           (users-table mirror) is the single source of truth (§22). */
+        points: s.points, theme: s.theme, sessions: s.sessions, audit: s.audit,
       }),
     }
   )
 );
+
+/* Keep the reactive `accounts` mirror in sync with the global identity
+   registry — the registry (like PostgreSQL) is authoritative, the store
+   just re-renders the UI from it. */
+useStark.setState({ accounts: useIdentityRegistry.getState().identities });
+useIdentityRegistry.subscribe((s) => useStark.setState({ accounts: s.identities }));
 
 /* derived balances hook */
 export function useBalances() {

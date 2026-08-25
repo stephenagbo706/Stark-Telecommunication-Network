@@ -33,6 +33,41 @@ WHERE phone_normalized IS NULL;
 ALTER TABLE users ALTER COLUMN email_normalized SET NOT NULL;
 ALTER TABLE users ALTER COLUMN phone_normalized SET NOT NULL;
 
+/* ------------- §18: detect existing duplicates BEFORE constraining -------------
+   We NEVER silently delete, merge or touch wallets/transactions. Conflicts are
+   reported into identity_conflicts for controlled admin resolution, and the
+   migration HALTS (aborts the whole transaction) if any exist — so a unique
+   index is never applied to dirty data. */
+
+CREATE TABLE IF NOT EXISTS identity_conflicts (
+  id            UUID PRIMARY KEY,
+  conflict_type TEXT NOT NULL CHECK (conflict_type IN ('DUPLICATE_EMAIL','DUPLICATE_PHONE','UNNORMALIZABLE_PHONE')),
+  identity      TEXT NOT NULL,
+  user_ids      TEXT[] NOT NULL,
+  detected_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO identity_conflicts (id, conflict_type, identity, user_ids)
+SELECT gen_random_uuid(), 'DUPLICATE_EMAIL', email_normalized, array_agg(id::text ORDER BY created_at)
+FROM users GROUP BY email_normalized HAVING COUNT(*) > 1;
+
+INSERT INTO identity_conflicts (id, conflict_type, identity, user_ids)
+SELECT gen_random_uuid(), 'DUPLICATE_PHONE', phone_normalized, array_agg(id::text ORDER BY created_at)
+FROM users GROUP BY phone_normalized HAVING COUNT(*) > 1;
+
+DO $$
+DECLARE
+  n INT;
+BEGIN
+  SELECT COUNT(*) INTO n FROM identity_conflicts;
+  IF n > 0 THEN
+    RAISE EXCEPTION
+      'STARK identity migration halted: % duplicate identit(y/ies) found in users. '
+      'Review the identity_conflicts table and resolve them administratively '
+      '(no account is deleted or merged automatically), then re-run migrations.', n;
+  END IF;
+END $$;
+
 -- The final authority on identity (§13). Duplicate inserts — including
 -- simultaneous racing registrations — fail here with SQLSTATE 23505.
 DROP INDEX IF EXISTS uq_users_email;

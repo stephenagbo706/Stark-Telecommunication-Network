@@ -108,7 +108,7 @@ func verifySecret(secret, encoded string) bool {
 func (m *Module) Routes(r *chi.Mux) {
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		r.Post("/register", m.handleRegister)
-		r.Post("/register/v2", m.RegisterV2) // identity-hardened (§7–§14)
+		r.Post("/register/v2", m.handleRegister) // same hardened path, API-contract alias (§7–§14)
 		r.Post("/login", m.handleLogin)
 		r.Post("/login/v2", m.LoginV2) // email-or-phone, multi-device (§15–§20)
 		r.Post("/otp/verify", m.handleOTPVerify)
@@ -171,21 +171,58 @@ func UserID(ctx context.Context) string {
 
 type registerReq struct {
 	Name     string `json:"name"`
+	FullName string `json:"full_name"`   // API-contract alias (§7)
 	Email    string `json:"email"`
 	Phone    string `json:"phone"`
+	PhoneNum string `json:"phone_number"` // API-contract alias (§7)
 	Password string `json:"password"`
 	Referral string `json:"referral_code"`
 }
 
+// handleRegister is the ONE registration path (served at /register and
+// /register/v2). Identity uniqueness is enforced by PostgreSQL; this
+// handler only normalizes, pre-checks for friendly errors and maps the
+// constraint violation when a race loses (§14).
 func (m *Module) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req registerReq
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		platform.WriteErr(w, r, 400, "invalid_body", "Check the registration details and try again.")
 		return
 	}
-	req.Name, req.Email, req.Phone = strings.TrimSpace(req.Name), strings.ToLower(strings.TrimSpace(req.Email)), strings.TrimSpace(req.Phone)
-	if req.Name == "" || !strings.Contains(req.Email, "@") || len(req.Phone) < 10 || len(req.Password) < 8 {
+	req.Name = firstNonEmpty(req.Name, req.FullName)
+	req.Phone = firstNonEmpty(req.Phone, req.PhoneNum)
+	// §5–§6 — normalize identity BEFORE anything else. The normalized values
+	// are what the unique indexes enforce, so every path (register, login,
+	// recovery) must agree on them.
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = NormalizeEmail(req.Email)
+	req.Phone = NormalizePhone(req.Phone)
+	if req.Name == "" || !validEmail.MatchString(req.Email) || req.Phone == "" || len(req.Password) < 8 {
 		platform.WriteErr(w, r, 422, "validation", "Provide a valid name, email, Nigerian phone number and a password of at least 8 characters.")
+		return
+	}
+
+	// §9–§14 — friendly pre-check (the unique indexes re-verify inside the
+	// transaction, so racing requests still cannot slip through).
+	emailOwner, phoneOwner := identityOwners(r.Context(), m.db, req.Email, req.Phone)
+	switch {
+	case emailOwner != "" && phoneOwner != "" && emailOwner != phoneOwner:
+		writeAudit(r.Context(), m.db, emailOwner, "identity_conflict_registration_attempt",
+			"Blocked: email and phone belong to different accounts")
+		platform.WriteErr(w, r, 409, "IDENTITY_CONFLICT",
+			"The email address and phone number cannot be registered together. Contact Stark Support to resolve it.")
+		return
+	case emailOwner != "":
+		writeAudit(r.Context(), m.db, emailOwner, "duplicate_email_registration_attempt",
+			"Blocked duplicate registration for "+req.Email)
+		platform.WriteErr(w, r, 409, "ACCOUNT_EXISTS",
+			"An account with this email already exists. Please sign in.")
+		return
+	case phoneOwner != "":
+		writeAudit(r.Context(), m.db, phoneOwner, "duplicate_phone_registration_attempt",
+			"Blocked duplicate registration for "+req.Phone)
+		platform.WriteErr(w, r, 409, "PHONE_ALREADY_REGISTERED",
+			"This phone number is already registered. Please sign in.")
 		return
 	}
 
@@ -205,11 +242,18 @@ func (m *Module) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	// One atomic transaction: user + profile + wallet + ledger accounts.
+	// One atomic transaction: user (with NORMALIZED identity) + profile +
+	// wallet + ledger accounts. A racing duplicate fails the unique index
+	// here with SQLSTATE 23505 and is mapped to the exact API code (§14) —
+	// the database is the final authority, never this handler's pre-check.
 	if _, err := tx.Exec(r.Context(),
-		`INSERT INTO users (id, email, password_hash, phone, status)
-		 VALUES ($1,$2,$3,$4,'pending_verification')`, userID, req.Email, hash, req.Phone); err != nil {
-		platform.WriteErr(w, r, 409, "email_taken", "An account with this email already exists. Try signing in.")
+		`INSERT INTO users (id, email, email_normalized, password_hash, phone, phone_normalized, status)
+		 VALUES ($1,$2,$3,$4,$5,$6,'pending_verification')`,
+		userID, req.Email, req.Email, hash, req.Phone, req.Phone); err != nil {
+		if mapUniqueViolation(err, w, r) {
+			return // ACCOUNT_EXISTS / PHONE_ALREADY_REGISTERED — no raw DB errors leak (§11)
+		}
+		platform.WriteErr(w, r, 500, "internal", "We couldn't create your account. Please retry.")
 		return
 	}
 	refCode := "STK" + strings.ToUpper(strings.ReplaceAll(uuid.NewString()[:8], "-", ""))
@@ -242,8 +286,9 @@ func (m *Module) handleRegister(w http.ResponseWriter, r *http.Request) {
 			`SELECT user_id FROM profiles WHERE referral_code=$1`, code).Scan(&referrerID); err == nil && referrerID != userID {
 			var dup bool
 			_ = tx.QueryRow(r.Context(),
-				`SELECT EXISTS(SELECT 1 FROM users u JOIN profiles p ON p.user_id=u.id
-				  WHERE u.id=$1 AND (lower(u.email)=$2 OR p.phone=$3))`, referrerID, req.Email, req.Phone).Scan(&dup)
+				`SELECT EXISTS(SELECT 1 FROM users u
+				  WHERE u.id=$1 AND (u.email_normalized=$2 OR u.phone_normalized=$3))`,
+				referrerID, req.Email, req.Phone).Scan(&dup)
 			if !dup {
 				if _, err := tx.Exec(r.Context(),
 					`INSERT INTO referrals (id, referrer_user_id, referred_user_id, referral_code, status)
@@ -266,6 +311,8 @@ func (m *Module) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// OTP lives in Redis only — temporary, expiring, rate-limited. Never in Postgres.
 	m.rdb.Set(r.Context(), "otp:"+userID, otp, 5*time.Minute)
 	m.rdb.Set(r.Context(), "otp:attempts:"+userID, 0, 5*time.Minute)
+	writeAudit(r.Context(), m.db, userID, "account_created",
+		"Account created for "+req.Email+" ("+req.Phone+")")
 	m.log.Info("user registered", "user_id", userID)
 
 	platform.WriteJSON(w, r, 201, map[string]any{
