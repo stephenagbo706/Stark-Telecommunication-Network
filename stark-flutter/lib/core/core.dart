@@ -196,6 +196,9 @@ final authExpiredNotifier = ValueNotifier<bool>(false);
 
 // Minimal uuid v4 without an extra dependency path in core.
 class UuidLike {
+  // Explicit const constructor — callers use `const UuidLike()` (§44 D1).
+  const UuidLike();
+
   String v4() => DateTime.now().microsecondsSinceEpoch.toRadixString(16) +
       DateTime.now().millisecondsSinceEpoch.toRadixString(16);
 }
@@ -331,7 +334,10 @@ String errorMessageOf(dynamic err, String fallback) {
   if (err is DioException && err.response != null) {
     try {
       final body = err.response!.data;
-      final msg = body is Map ? body['error']?['message'] : null;
+      // Null-safe two-step read of {"error": {"message": …}} (§44 D2 —
+      // null-aware index access is not valid Dart).
+      final errObj = body is Map ? body['error'] : null;
+      final msg = errObj is Map ? errObj['message'] : null;
       if (msg is String && msg.isNotEmpty) return msg;
     } catch (_) {}
   }

@@ -440,7 +440,7 @@ INSERT INTO ledger_accounts (id, user_id, kind, currency) VALUES
   (gen_random_uuid(), NULL, 'REFERRAL_POOL', 'NGN');   -- marketing liability funding referral rewards
 
 -- +goose Down
--- Rename this file to 000001_init.sql for Goose's single-file convention.
+-- Renamed 000001_init.up.sql → 000001_init.sql (Goose single-file convention).
 DROP FUNCTION IF EXISTS touch_updated_at() CASCADE;
 DROP TABLE IF EXISTS api_keys, audit_logs, security_events, fraud_events,
   disputes, support_tickets, notifications, promotions, cashback_entries,
@@ -450,3 +450,4 @@ DROP TABLE IF EXISTS api_keys, audit_logs, security_events, fraud_events,
   payment_webhooks, payments, transaction_items, transactions,
   ledger_entries, ledger_accounts, wallets, sessions, devices,
   profiles, users CASCADE;
+DROP SEQUENCE IF EXISTS support_ticket_seq;
