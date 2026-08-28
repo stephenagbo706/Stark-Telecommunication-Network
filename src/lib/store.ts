@@ -40,41 +40,82 @@ export interface Profile {
 export interface Toast { id: string; msg: string; kind: "ok" | "bad" | "info" }
 
 /* ---------------- helpers ---------------- */
-export const uid = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `id-${Date.now()}-${Math.floor(Math.random() * 1e9)}`);
 
-export function makeRef() {
+/** Generate a unique ID using crypto.randomUUID or fallback to timestamp-based ID */
+export const uid = (): string => 
+  typeof crypto !== "undefined" && "randomUUID" in crypto 
+    ? crypto.randomUUID() 
+    : `id-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+
+/** Generate a Stark transaction reference (e.g., STK-20250101-A1B2C3D4) */
+export function makeRef(): string {
   const d = new Date();
   const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
   const bytes = new Uint8Array(5);
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) crypto.getRandomValues(bytes);
-  else for (let i = 0; i < 5; i++) bytes[i] = Math.floor(Math.random() * 256);
-  const s = Array.from(bytes, (b) => b.toString(36)).join("").toUpperCase().replace(/[^A-Z0-9]/g, "X").padEnd(8, "7").slice(0, 8);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < 5; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  const s = Array.from(bytes, (b) => b.toString(36))
+    .join("")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "X")
+    .padEnd(8, "7")
+    .slice(0, 8);
   return `STK-${ymd}-${s}`;
 }
 
-export function hashStr(str: string) {
+/** Create a seeded random number generator for deterministic hashing */
+export function hashStr(str: string): () => number {
   let h = 2166136261;
-  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  for (let i = 0; i < str.length; i++) { 
+    h ^= str.charCodeAt(i); 
+    h = Math.imul(h, 16777619); 
+  }
   return () => {
-    h |= 0; h = (h + 0x6d2b79f5) | 0;
+    h |= 0; 
+    h = (h + 0x6d2b79f5) | 0;
     let t = Math.imul(h ^ (h >>> 15), 1 | h);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-export const money = (n: number) => "₦" + n.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-export const money0 = (n: number) => "₦" + Math.round(n).toLocaleString("en-NG");
-export const timeAgo = (ts: number) => {
+export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Format number as Nigerian Naira with 2 decimal places */
+export const money = (n: number): string => 
+  "₦" + n.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Format number as Nigerian Naira without decimals */
+export const money0 = (n: number): string => 
+  "₦" + Math.round(n).toLocaleString("en-NG");
+
+/** Format timestamp as relative time (e.g., "5m ago", "2h ago") */
+export const timeAgo = (ts: number): string => {
   const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 };
-export const fmtDate = (ts: number) => new Date(ts).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" });
-export const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+
+/** Format timestamp as Nigerian date format */
+export const fmtDate = (ts: number): string => 
+  new Date(ts).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" });
+
+/** Format timestamp as Nigerian time format */
+export const fmtTime = (ts: number): string => 
+  new Date(ts).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" });
+
+/** Extract initials from a name */
+export const initials = (name: string): string => {
+  const parts = name.trim().split(/\s+/);
+  return parts.length > 1 
+    ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+    : parts[0].slice(0, 2).toUpperCase();
+};
 
 /* ledger math — the wallet is ALWAYS derived from the ledger */
 const sum = (l: LedgerEntry[], kinds: LedgerKind[]) => l.filter((e) => kinds.includes(e.kind)).reduce((a, e) => a + e.amount, 0);
@@ -563,5 +604,7 @@ export function useBalances() {
   };
 }
 
-export const initials = (name: string) => name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
-export const demoName = (seedKey: string) => { const r = hashStr(seedKey); return DEMO_NAMES[Math.floor(r() * DEMO_NAMES.length)]; };
+export const demoName = (seedKey: string) => { 
+  const r = hashStr(seedKey); 
+  return DEMO_NAMES[Math.floor(r() * DEMO_NAMES.length)]; 
+};
