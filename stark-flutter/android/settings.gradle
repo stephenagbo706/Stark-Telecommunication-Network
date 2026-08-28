@@ -1,0 +1,42 @@
+// ============================================================
+// STARK Telecommunication — Android build (modern plugin DSL)
+// Generated for Flutter 3.44.x. Versions below are the minimum
+// known-good set; your `flutter create --platforms=android .`
+// step may materialize newer wrapper binaries — that is safe.
+// ============================================================
+
+pluginManagement {
+    def flutterSdkPath = {
+        def properties = new Properties()
+        file("local.properties").withInputStream { properties.load(it) }
+        def flutterSdkPath = properties.getProperty("flutter.sdk")
+        assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+        return flutterSdkPath
+    }()
+
+    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+    id "com.android.application" version "8.9.1" apply false
+
+    // ---- Firebase (FCM) -------------------------------------------
+    // UNCOMMENT both this line AND the matching line in
+    // app/build.gradle.kts AFTER placing google-services.json in
+    // android/app/ (Firebase console → project → Android app with
+    // package name app.stark.stark_telecom). Until then the app
+    // builds fine; push delivery activates once configured.
+    // id "com.google.gms.google-services" version "4.4.2" apply false
+    // -----------------------------------------------------------------
+
+    id "org.jetbrains.kotlin.android" version "2.1.0" apply false
+}
+
+include ":app"
