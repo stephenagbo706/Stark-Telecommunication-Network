@@ -81,7 +81,7 @@ dependencies:
 
   # Monitoring & formatting & utilities
   sentry_flutter: ^8.4.0
-  intl: ^0.19.0
+  intl: ^0.20.2
   uuid: ^4.4.0
   google_fonts: ^6.2.1
 
