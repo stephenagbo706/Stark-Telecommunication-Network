@@ -7,6 +7,7 @@ import {
   launchWhatsApp, copySupportMessage, nextTicketId, STARK_WHATSAPP_DISPLAY,
 } from "../lib/whatsapp";
 import { useReferrals, STATUS_LABEL, statusHue, MIN_TRANSFER_KOBO } from "../lib/referrals";
+import { runDiagnostics, watchNetwork, type TurboReport } from "../lib/turbo";
 import { IBell, ICheck, IChevD, IChevR, ICopy, IGauge, IHeadset, IInfo, ISearch, IShield, IStar, ITv, IUsers, IWallet, IWifi, IX, IArrowUR, IData, IcoSignal, IMeter, ISms, ITicket, ITarget, IGift, IPlus, IShare, IRefresh } from "../components/icons";
 
 const KIND_ICON: Record<string, React.ReactNode> = {
@@ -452,41 +453,43 @@ export function Help({ txId }: { txId?: string }) {
   );
 }
 
-/* ================= diagnostics ================= */
+/* ================= diagnostics =================
+ * Stark Turbo — real on-device measurements (src/lib/turbo.ts).
+ * Availability is probed over HTTPS, API latency is a real round-trip,
+ * throughput is a timed 200 KB download and stability comes from 6 live
+ * probes. The grade is a deterministic score of those measurements.
+ * The UI contract below is unchanged — only the data source is real.  */
 interface Diag { label: string; value: string; score: number; note: string }
 export function Diagnostics() {
   const nav = useNav();
   const [checks, setChecks] = useState<Diag[]>([]);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
+  const [report, setReport] = useState<TurboReport | null>(null);
+  const [stale, setStale] = useState(false);
 
   const run = async () => {
-    setRunning(true); setDone(false); setChecks([]);
-    const out: Diag[] = [];
-    const push = (d: Diag) => { out.push(d); setChecks([...out]); };
-    const online = navigator.onLine;
-    push({ label: "Network availability", value: online ? "Online" : "Offline", score: online ? 100 : 0, note: online ? "Device has internet access." : "Reconnect to use financial services." });
-    await new Promise((r) => setTimeout(r, 420));
-    const conn = (navigator as unknown as { connection?: { effectiveType?: string; downlink?: number; rtt?: number } }).connection;
-    const eff = conn?.effectiveType ?? "unknown";
-    const effScore = eff === "4g" ? 95 : eff === "3g" ? 70 : eff === "2g" ? 40 : 60;
-    push({ label: "Connection type", value: eff.toUpperCase() + (conn?.downlink ? ` • ~${conn.downlink} Mbps` : ""), score: effScore, note: eff === "4g" ? "Fast enough for instant VTU delivery." : "Slower networks may extend provider response times." });
-    await new Promise((r) => setTimeout(r, 420));
-    const samples: number[] = [];
-    for (let i = 0; i < 5; i++) { const t0 = performance.now(); await new Promise((r) => setTimeout(r, 24)); samples.push(performance.now() - t0 - 24); }
-    const jitter = samples.reduce((a, v) => a + v, 0) / samples.length;
-    const apiLatency = Math.round(12 + jitter * 0.6 + (conn?.rtt ?? 20) * 0.3);
-    push({ label: "API latency (edge estimate)", value: `${apiLatency}ms`, score: apiLatency < 60 ? 95 : apiLatency < 120 ? 72 : 45, note: "Measured against the Lagos edge node." });
-    await new Promise((r) => setTimeout(r, 420));
-    const variance = Math.max(...samples) - Math.min(...samples);
-    push({ label: "Connection stability", value: variance < 6 ? "Stable" : variance < 14 ? "Variable" : "Unstable", score: variance < 6 ? 92 : variance < 14 ? 65 : 38, note: variance < 6 ? "Low jitter — transactions will confirm fast." : "High jitter can cause PROCESSING states; we reconcile automatically." });
-    await new Promise((r) => setTimeout(r, 300));
-    setRunning(false); setDone(true);
+    setRunning(true); setDone(false); setStale(false); setChecks([]); setReport(null);
+    const res = await runDiagnostics((s) => setChecks((prev) => [...prev, { label: s.label, value: s.value, score: s.score, note: s.note }]));
+    if (res) { setReport(res); setDone(true); }
+    setRunning(false);
   };
 
-  useEffect(() => { run(); }, []);
-  const avg = checks.length ? Math.round(checks.reduce((a, c) => a + c.score, 0) / checks.length) : 0;
-  const grade = avg >= 85 ? ["Excellent", "var(--st-ok)"] : avg >= 65 ? ["Good", "var(--st-cyan)"] : avg >= 45 ? ["Fair", "var(--st-warn)"] : ["Poor", "var(--st-bad)"];
+  useEffect(() => {
+    run();
+    /* §11 — network changed ⇒ results are stale; never present them as current */
+    const unwatch = watchNetwork(() => {
+      setStale(true);
+      if (navigator.onLine) run(); // came back online → fresh measurement
+    });
+    return unwatch;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const avg = report ? report.grade : 0;
+  const grade = report?.gradeBand === "Offline"
+    ? ["Offline", "var(--st-bad)"]
+    : avg >= 85 ? ["Excellent", "var(--st-ok)"] : avg >= 65 ? ["Good", "var(--st-cyan)"] : avg >= 45 ? ["Fair", "var(--st-warn)"] : ["Poor", "var(--st-bad)"];
 
   return (
     <div className="h-full flex flex-col">
@@ -507,6 +510,12 @@ export function Diagnostics() {
             <p className="text-[10px] font-bold tracking-widest text-mute">CONNECTION GRADE</p>
             <p className="font-display font-bold text-2xl" style={{ color: grade[1] }}>{done ? grade[0] : "Testing…"}</p>
             <p className="text-[10px] text-mute font-semibold leading-relaxed mt-1">Stark Turbo reports real network conditions — it never claims to boost towers or force speed.</p>
+            {done && report && (
+              <p className="text-[9px] text-mute font-semibold mt-1 tnum">
+                Measured {new Date(report.measuredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                {stale ? " • network changed — press Re-run" : ""}
+              </p>
+            )}
           </div>
         </div>
 
@@ -521,16 +530,14 @@ export function Diagnostics() {
               <p className="text-[10px] text-mute font-semibold mt-1.5">{c.note}</p>
             </div>
           ))}
-          {running && checks.length < 4 && <div className="skeleton h-20 rounded-2xl" />}
+          {running && checks.length < 5 && <div className="skeleton h-20 rounded-2xl" />}
         </div>
 
-        {done && (
+        {done && report && (
           <div className="card p-4 border-cyan/25 a-rise">
             <p className="text-[10px] font-bold tracking-widest text-cyan mb-2 flex items-center gap-1.5"><IWifi size={12} /> RECOMMENDATIONS</p>
             <ul className="space-y-1.5">
-              {(avg >= 85 ? ["Your connection is ideal for instant purchases.", "Auto-renewals and webhooks will settle in real time."]
-                : avg >= 60 ? ["Good connection. Large bulk SMS batches may queue briefly.", "Keep the app open during purchases for fastest confirmation."]
-                  : ["Switch to Wi-Fi or a stronger signal before large purchases.", "If a purchase stalls, it stays PROCESSING and reconciles — no double charges."]).map((r) => (
+              {report.recommendations.map((r) => (
                 <li key={r} className="text-[11px] text-sub leading-relaxed flex gap-2"><ICheck size={12} className="text-cyan shrink-0 mt-0.5" /> {r}</li>
               ))}
             </ul>

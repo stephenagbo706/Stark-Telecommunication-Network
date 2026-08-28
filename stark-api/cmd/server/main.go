@@ -53,6 +53,7 @@ func main() {
 	finMod := finance.New(cfg, db, rdb, log)
 	supportMod := support.New(db, log)
 	referralMod := referrals.New(db, finMod, log)
+	diagMod := diagnostics.New(cfg, log) // Stark Turbo backend ping — DB-free
 	finance.SetAuthMiddleware(authMod.Auth)
 	support.SetAuthMiddleware(authMod.Auth)
 	referrals.SetAuthMiddleware(authMod.Auth)

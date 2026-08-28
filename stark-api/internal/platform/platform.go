@@ -53,6 +53,11 @@ type Config struct {
 
 	CORSOrigins []string
 	StorageDir  string
+
+	// Region is the deployment's honest self-label, reported by
+	// GET /api/v1/diagnostics/ping so clients never invent edge claims
+	// (§24). Configure per deployment; defaults to "core".
+	Region string
 }
 
 func env(key, fallback string) string {
@@ -78,6 +83,7 @@ func LoadConfig() Config {
 		ProviderBKey:      env("VTU_PROVIDER_B_KEY", ""),
 		CORSOrigins:       []string{env("STARK_CORS_ORIGINS", "*")},
 		StorageDir:        env("STARK_STORAGE_DIR", "./storage"),
+		Region:            env("STARK_REGION", "core"),
 	}
 }
 
