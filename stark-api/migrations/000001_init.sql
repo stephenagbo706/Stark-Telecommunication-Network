@@ -5,7 +5,10 @@
 -- Managed by Goose:  goose -dir migrations postgres "$DB_URL" up
 -- ============================================================
 
+-- pgcrypto → gen_random_uuid(); citext → users.email column type (line below).
+-- Without citext this migration fails: 'type "citext" does not exist'.
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "citext";
 
 /* ---------------- identity ---------------- */
 
