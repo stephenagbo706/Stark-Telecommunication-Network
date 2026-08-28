@@ -1,0 +1,13 @@
+# Standard Flutter Android ignore set (template).
+gradle-wrapper.jar
+/.gradle
+/captures/
+/gradlew
+/gradlew.bat
+/local.properties
+GeneratedPluginRegistrant.java
+
+# Never publicly share keystores.
+key.properties
+**/*.keystore
+**/*.jks
