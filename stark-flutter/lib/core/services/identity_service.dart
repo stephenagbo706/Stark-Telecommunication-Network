@@ -159,11 +159,17 @@ class IdentityService {
       _api.dio.delete('/api/v1/auth/sessions/$sessionId');
 
   /// Rebind the FCM token for this device (rotation / reinstall).
+  /// Safe to call even when Firebase is not configured — it no-ops, so a
+  /// missing google-services.json never breaks login or session flows.
   Future<void> registerFcmToken(String deviceId) async {
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token == null) return;
-    await _api.dio.post('/api/v1/devices/fcm-token',
-         {'device_id': deviceId, 'fcm_token': token});
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token == null) return;
+      await _api.dio.post('/api/v1/devices/fcm-token',
+           {'device_id': deviceId, 'fcm_token': token});
+    } catch (_) {
+      // Firebase unavailable on this build — skip push registration.
+    }
   }
 
   /* ------------------------- error mapping -------------------------- */

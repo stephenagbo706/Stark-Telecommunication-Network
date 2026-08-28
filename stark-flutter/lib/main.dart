@@ -17,10 +17,21 @@ Future<void> main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  await Firebase.initializeApp();
-  FirebaseMessaging.instance.requestPermission(
-    alert: true, badge: true, sound: true, provisional: false,
-  );
+  // Firebase is OPTIONAL at launch. If google-services.json has not been
+  // added (android/app/), the app still boots — push delivery is simply
+  // disabled until it is configured. Never let a missing push setup crash
+  // the whole application (§44: do not remove Firebase; make it resilient).
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp();
+    }
+    FirebaseMessaging.instance.requestPermission(
+      alert: true, badge: true, sound: true, provisional: false,
+    );
+  } catch (_) {
+    // Firebase not configured on this build. The app runs normally;
+    // FCM registration in identity_service is already guarded.
+  }
 
   // Dark status bar over the Stark navy canvas.
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
