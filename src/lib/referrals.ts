@@ -70,34 +70,17 @@ interface ReferralState {
   load: (code: string) => Promise<void>;
   /** Drive a referred friend through the qualification pipeline. */
   advance: (id: string, step: "verify" | "fund" | "purchase" | "fail-purchase") => void;
+  /** Demo aid: add a fresh REGISTERED friend (₦0 earned) to walk the pipeline. */
+  simulate: () => void;
   transferToWallet: () => { ok: boolean; message: string };
   stats: () => ReferralStats;
 }
 
-const seed = (code: string): ReferralRecord[] => {
-  const now = Date.now();
-  return [
-    {
-      id: uid(), referredName: "Chidi Okafor", status: "REWARDED",
-      createdAt: now - 90 * D, activatedAt: now - 88 * D,
-      funded: true, verified: true, qualifyingTxRef: "STK-20251102-A1B2C3D4",
-      rewardKobo: REFERRAL_REWARD_KOBO, rewardStatus: "PAID",
-      ledgerRef: ledgerRef(), risk: "LOW",
-    },
-    {
-      id: uid(), referredName: "Blessing Eze", status: "ACTIVE",
-      createdAt: now - 6 * D, activatedAt: now - 4 * D,
-      funded: true, verified: true, qualifyingTxRef: "STK-20260118-E5F6A7B8",
-      rewardKobo: REFERRAL_REWARD_KOBO, rewardStatus: "APPROVED",
-      ledgerRef: ledgerRef(), risk: "LOW",
-    },
-    {
-      id: uid(), referredName: "Emeka Nwosu", status: "FUNDED",
-      createdAt: now - 2 * D, funded: true, verified: true,
-      rewardKobo: 0, rewardStatus: "PENDING", risk: "LOW",
-    },
-  ];
-};
+/* No seeded referrals, no seeded rewards — every account starts at zero.
+   `simulate()` (invoked explicitly from the UI) creates a brand-new
+   REGISTERED friend worth ₦0 so the qualification pipeline can be
+   walked interactively; nothing is pre-earned. */
+const SIM_NAMES = ["Chidi Okafor", "Blessing Eze", "Emeka Nwosu", "Amina Bello", "Tunde Balogun", "Ngozi Anyanwu"];
 
 export const useReferrals = create<ReferralState>((set, get) => ({
   loading: false,
@@ -112,9 +95,21 @@ export const useReferrals = create<ReferralState>((set, get) => ({
     set({ loading: true, error: null, referralCode: code });
     // Production: const res = await api.get('/api/v1/referrals/me')
     await new Promise((r) => setTimeout(r, 650));
+    set((s) => ({ loading: false, records: s.records, ...recompute(s.records, s.withdrawnKobo) }));
+  },
+
+  /** UI-only demo aid: register a fresh friend at REGISTERED with ₦0
+      earned — the user then drives the pipeline themselves. */
+  simulate: () => {
+    const name = SIM_NAMES[Math.floor(Math.random() * SIM_NAMES.length)];
     set((s) => {
-      const records = s.records.length ? s.records : seed(code);
-      return { loading: false, records, ...recompute(records, s.withdrawnKobo) };
+      const rec: ReferralRecord = {
+        id: uid(), referredName: name, status: "REGISTERED",
+        createdAt: Date.now(), funded: false, verified: false,
+        rewardKobo: 0, rewardStatus: "PENDING", risk: "LOW",
+      };
+      const records = [rec, ...s.records];
+      return { records, ...recompute(records, s.withdrawnKobo) };
     });
   },
 

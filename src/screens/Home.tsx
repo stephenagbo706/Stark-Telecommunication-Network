@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useStark, useBalances, money0, money, timeAgo, type Tx } from "../lib/store";
 import { Avatar, Chip, Reveal, Spark, StatusBadge, useCountUp, useNav } from "../components/ui";
-import { PROMOS, AD_IMAGES as ADS } from "../lib/data";
+import { PROMOS, AD_IMAGES as ADS, REWARD_TIERS } from "../lib/data";
 import AdShow from "../components/AdShow";
 import {
   IData, ITv, IMeter, IcoSignal, IGift, ISms, ITicket, ITarget, IPlus, IBell, IEye, IEyeOff,
@@ -29,6 +29,11 @@ export default function Home() {
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const bal = useCountUp(b.available);
   const firstName = profile?.name.split(" ")[0] ?? "there";
+
+  /* Real reward tier from actual points — no static demo claims. */
+  const tier = [...REWARD_TIERS].reverse().find((t) => points >= t.min) ?? REWARD_TIERS[0];
+  const nextTier = REWARD_TIERS[REWARD_TIERS.indexOf(tier) + 1];
+  const tierPct = nextTier ? Math.max(0, Math.min(100, Math.round(((points - tier.min) / (nextTier.min - tier.min)) * 100))) : 100;
 
   const sparkData = useMemo(() => {
     const days = 14;
@@ -244,8 +249,12 @@ export default function Home() {
         <button onClick={() => nav.push({ name: "rewards" })} className="press lift card p-4 text-left">
           <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-[0.2em] text-warn"><IStar size={12} /> REWARDS</span>
           <p className="font-display font-bold text-xl mt-1 tnum">{points}<span className="text-[11px] text-mute font-body font-semibold"> pts</span></p>
-          <p className="text-[10px] text-mute font-semibold mt-0.5">Silver • 76% to Gold</p>
-          <div className="mt-2 h-1 rounded-full bg-well overflow-hidden"><div className="h-full w-[76%] rounded-full" style={{ background: "linear-gradient(90deg,#F5C542,#F59E0B)" }} /></div>
+          <p className="text-[10px] text-mute font-semibold mt-0.5">
+            {tier.name}{nextTier ? ` • ${tierPct}% to ${nextTier.name}` : " • top tier"}
+          </p>
+          <div className="mt-2 h-1 rounded-full bg-well overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${tierPct}%`, background: `linear-gradient(90deg,${tier.hue},${nextTier ? nextTier.hue : tier.hue})` }} />
+          </div>
         </button>
         <button onClick={() => nav.push({ name: "subscriptions" })} className="press lift card p-4 text-left">
           <span className="flex items-center gap-1.5 text-[9px] font-bold tracking-[0.2em] text-ok"><ITv size={12} /> SUBSCRIPTION</span>

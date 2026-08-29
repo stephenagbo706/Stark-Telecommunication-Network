@@ -147,6 +147,15 @@ export function Referrals() {
 
         {/* §20 — referral history with real statuses + reward state */}
         <div className="card divide-y divide-line/70 overflow-hidden">
+          {ref.records.length === 0 && (
+            <div className="p-6 text-center">
+              <p className="text-[13px] font-bold">No referrals yet</p>
+              <p className="text-[11px] text-mute mt-1.5 leading-relaxed px-3">
+                Share your link — you earn ₦500 when a friend registers, verifies, funds their wallet and completes a first purchase.
+              </p>
+              <SBtn small variant="ghost" className="mt-3.5" onClick={() => ref.simulate()}>Simulate a friend joining</SBtn>
+            </div>
+          )}
           {ref.records.map((r) => (
             <div key={r.id} className="px-4 py-3.5">
               <div className="flex items-center gap-3">

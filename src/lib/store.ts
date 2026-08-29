@@ -269,88 +269,31 @@ export const useStark = create<StarkState>()(
       },
 
       loadDemo: () => {
+        /* The demo account is a REAL account, not a money showcase: the
+           wallet starts at exactly ₦0.00 with no ledger history, no
+           transactions, no points and no rewards. The only way money
+           enters is the user's own Paystack funding. */
         const now = Date.now();
         const D = 86400000;
-        const L: LedgerEntry[] = [];
-        const T: Tx[] = [];
-        const mk = (daysAgo: number, service: Service, title: string, amount: number, fee: number, meta: TxMeta, failed = false) => {
-          const ts = now - daysAgo * D - Math.floor(Math.random() * 10) * 3600000;
-          const ref = makeRef();
-          T.push({
-            id: uid(), ref, service, title, amount, fee, total: amount + fee,
-            status: failed ? "FAILED" : "SUCCESSFUL", provider: SERVICE_META[service].provider,
-            providerRef: failed ? undefined : `PV-${Math.random().toString(36).slice(2, 12).toUpperCase()}`,
-            createdAt: ts, completedAt: failed ? ts + 4000 : ts + 9000,
-            failReason: failed ? "Provider timed out before confirming. No value was delivered." : undefined, meta,
-          });
-          L.push({ id: uid(), ts, kind: "RESERVE", amount, note: `Reserved — ${title}`, ref });
-          if (fee > 0) L.push({ id: uid(), ts, kind: "FEE", amount: fee, note: `Service fee — ${title}`, ref });
-          if (failed) {
-            L.push({ id: uid(), ts: ts + 4000, kind: "REVERSAL", amount, note: `Auto-reversal — ${title} failed`, ref });
-            if (fee > 0) L.push({ id: uid(), ts: ts + 4000, kind: "REFUND", amount: fee, note: `Fee refunded — ${title} failed`, ref });
-          } else {
-            L.push({ id: uid(), ts: ts + 9000, kind: "RELEASE", amount, note: `Released to provider — ${title}`, ref });
-            L.push({ id: uid(), ts: ts + 9000, kind: "DEBIT", amount, note: `Settlement — ${title}`, ref });
-          }
-        };
 
-        L.push({ id: uid(), ts: now - 30 * D, kind: "CREDIT", amount: 49340, note: "Wallet funding — Paystack card", ref: makeRef() });
-        mk(28, "airtime", "MTN Airtime • 0803 472 1189", 1000, 0, { network: "MTN", phone: "0803 472 1189" });
-        mk(25, "data", "MTN 2GB • 0803 472 1189", 1200, 0, { network: "MTN", phone: "0803 472 1189", plan: "2GB", size: "2GB" });
-        mk(22, "cable", "GOtv Jolli • 5093117722", 4850, 50, { providerName: "GOtv", iuc: "5093117722", customer: "ADAEZE OKAFOR", plan: "GOtv Jolli" });
-        mk(19, "electricity", "IKEDC Prepaid • 45030122876", 5000, 100, { disco: "IKEDC", meter: "45030122876", meterType: "Prepaid", customer: "ADAEZE OKAFOR", token: "7742-0193-5568-2214" });
-        L.push({ id: uid(), ts: now - 19 * D, kind: "CASHBACK", amount: 25, note: "Cashback — IKEDC electricity purchase" });
-        mk(15, "airtime", "Glo Airtime • 0815 904 2231", 500, 0, { network: "GLO", phone: "0815 904 2231" });
-        mk(12, "data", "Glo 2.9GB • 0815 904 2231", 2500, 0, { network: "GLO", phone: "0815 904 2231", plan: "2.9GB", size: "2.9GB" });
-        L.push({ id: uid(), ts: now - 12 * D, kind: "CASHBACK", amount: 25, note: "Cashback — Glo data bundle" });
-        mk(10, "exam", "WAEC Scratch Card ×1", 2850, 50, { examBody: "WAEC", item: "WASSCE Scratch Card", qty: 1, pins: [{ serial: "4501923307", pin: "771204558813" }] });
-        mk(8, "betting", "Bet9ja top-up • 44192837", 1500, 0, { platform: "Bet9ja", betId: "44192837" });
-        mk(6, "gift", "Gift — MTN 1GB to Chidi", 1000, 25, { network: "MTN", phone: "0812 774 9021", giftType: "data", plan: "1GB", message: "For the exams. — Ada" });
-        mk(5, "sms", "Bulk SMS • 145 recipients", 580, 0, { senderId: "STARKNG", units: 145, message: "Town union meeting Saturday 4pm." });
-        mk(3, "airtime", "MTN Airtime • 0706 118 3345", 200, 0, { network: "MTN", phone: "0706 118 3345" });
-        mk(2, "airtime", "Airtel Airtime • 0901 220 8873", 425, 0, { network: "AIRTEL", phone: "0901 220 8873" });
-        mk(1, "airtime", "MTN Airtime • 0803 472 1189", 1000, 0, { network: "MTN", phone: "0803 472 1189" }, true);
-        const wts = now - 4 * D;
-        const wref = makeRef();
-        T.push({ id: uid(), ref: wref, service: "withdraw", title: "Withdrawal • GTBank ••6621", amount: 2000, fee: 10, total: 2010, status: "SUCCESSFUL", provider: "Paystack Transfer", providerRef: `PS-${Math.random().toString(36).slice(2, 10).toUpperCase()}`, createdAt: wts, completedAt: wts + 60000, meta: { bank: "GTBank", account: "0123456621", accountName: "ADAEZE OKAFOR" } });
-        L.push({ id: uid(), ts: wts, kind: "RESERVE", amount: 2000, note: "Reserved — withdrawal to GTBank", ref: wref });
-        L.push({ id: uid(), ts: wts, kind: "FEE", amount: 10, note: "Transfer fee", ref: wref });
-        L.push({ id: uid(), ts: wts + 60000, kind: "RELEASE", amount: 2000, note: "Released — withdrawal payout", ref: wref });
-        L.push({ id: uid(), ts: wts + 60000, kind: "WITHDRAW", amount: 2000, note: "Payout — GTBank ••6621", ref: wref });
-        L.push({ id: uid(), ts: now - 7 * D, kind: "REWARD", amount: 25, note: "Redeemed 50 STARK points" });
-        L.sort((a, b) => b.ts - a.ts);
-        T.sort((a, b) => b.createdAt - a.createdAt);
 
         set({
           authed: true,
           profile: {
             name: "Adaeze Okafor", phone: "0803 472 1189", email: "ada.okafor@gmail.com", pin: "1234",
             emailVerified: true, phoneVerified: true, biometric: true, twoFA: false, frozen: false,
-            joinedAt: now - 210 * D, referralCode: "STARK-ADA7", refEarned: 1500,
-            referrals: [
-              { name: "Chidi Okafor", date: now - 90 * D, status: "ACTIVE", earned: 500 },
-              { name: "Blessing Eze", date: now - 41 * D, status: "ACTIVE", earned: 500 },
-              { name: "Ibrahim Musa", date: now - 6 * D, status: "PENDING", earned: 0 },
-            ],
+            joinedAt: now - 210 * D, referralCode: "STARK-ADA7", refEarned: 0,
+            referrals: [],
           },
-          ledger: L, txs: T, points: 1240,
-          beneficiaries: [
-            { id: uid(), service: "airtime", label: "My line", value: "0803 472 1189", network: "MTN", fav: true, ts: now - 60 * D },
-            { id: uid(), service: "airtime", label: "Mama", value: "0815 904 2231", network: "GLO", fav: true, ts: now - 55 * D },
-            { id: uid(), service: "data", label: "Chidi", value: "0812 774 9021", network: "MTN", ts: now - 30 * D },
-            { id: uid(), service: "electricity", label: "Home meter", value: "45030122876", extra: "IKEDC", ts: now - 19 * D },
-            { id: uid(), service: "cable", label: "Home GOtv", value: "5093117722", extra: "GOtv", ts: now - 22 * D },
-          ],
+          /* ₦0.00 — the wallet only ever grows from the user's own
+             real Paystack funding. No seeded balances, ever. */
+          ledger: [], txs: [], points: 0,
+          beneficiaries: [],
           notifications: [
-            { id: uid(), ts: now - 3600000, read: false, kind: "error", title: "Transaction reversed", body: "MTN Airtime ₦1,000 failed at the provider. The reserved ₦1,000 was returned to your wallet." },
-            { id: uid(), ts: now - 5 * 3600000, read: false, kind: "reward", title: "+25 points", body: "You earned STARK points on your Airtel airtime purchase." },
-            { id: uid(), ts: now - 26 * 3600000, read: false, kind: "security", title: "New device signed in", body: "Chrome on Windows signed in from Lagos, NG. If this wasn't you, freeze your account immediately." },
-            { id: uid(), ts: now - 2 * D, read: true, kind: "success", title: "Airtime successful", body: "MTN Airtime ₦200 to 0706 118 3345 was delivered." },
-            { id: uid(), ts: now - 4 * D, read: true, kind: "info", title: "Withdrawal completed", body: "₦2,000 was sent to GTBank ••6621." },
-            { id: uid(), ts: now - 6 * D, read: true, kind: "reward", title: "Referral reward", body: "Blessing Eze completed her first purchase. ₦500 referral bonus is pending settlement." },
+            { id: uid(), ts: now, read: false, kind: "info", title: "Welcome to STARK", body: "Your wallet starts at ₦0.00. Add money with Paystack to buy airtime, data, cable and electricity." },
           ],
-          tickets: [{ id: uid(), ts: now - 12 * D, subject: "GOtv bouquet not reflecting", category: "Cable TV", body: "Jolli bouquet paid but decoder still shows Free channels.", status: "RESOLVED", ref: "STK-REF" }],
-          subs: [{ id: "sub-1", name: "GOtv Jolli", provider: "GOtv • IUC 5093117722", price: 4850, cycle: "Monthly", nextRenewal: now + 12 * D, autoRenew: true, history: [{ ts: now - 22 * D, ref: "Auto" }, { ts: now - 52 * D, ref: "Manual" }] }],
+          tickets: [],
+          subs: [],
           devices: [
             { id: "dev-1", name: "Pixel 8 Pro", platform: "Android 15 • STARK App", lastActive: now, current: true },
             { id: "dev-2", name: "Chrome • Windows", platform: "Web session", lastActive: now - 26 * 3600000, current: false },
@@ -377,7 +320,7 @@ export const useStark = create<StarkState>()(
             auditEv("account_created", "Account created for ada.okafor@gmail.com (+234 803 472 1189)"),
           ],
         });
-        get().toast("Demo account loaded — PIN 1234", "ok");
+        get().toast("Account loaded — PIN 1234 • wallet starts at ₦0", "ok");
       },
 
       setAvatar: (dataUrl) => set((s) => (s.profile ? { profile: { ...s.profile, avatar: dataUrl } } : {})),
@@ -534,7 +477,9 @@ export const useStark = create<StarkState>()(
       toggleAutoRenew: (id) => set((s) => ({ subs: s.subs.map((x) => (x.id === id ? { ...x, autoRenew: !x.autoRenew } : x)) })),
     }),
     {
-      name: "stark-store-v1",
+      /* v2: fresh start — previous demo balances are intentionally discarded
+         so every wallet begins at ₦0.00 (real funding only). */
+      name: "stark-store-v2",
       partialize: (s) => ({
         authed: s.authed, profile: s.profile, ledger: s.ledger, txs: s.txs, beneficiaries: s.beneficiaries,
         notifications: s.notifications, tickets: s.tickets, subs: s.subs, devices: s.devices, logins: s.logins,
