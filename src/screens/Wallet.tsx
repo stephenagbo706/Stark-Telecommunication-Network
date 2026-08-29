@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useStark, useBalances, money, money0, fmtDate, fmtTime, type LedgerKind } from "../lib/store";
-import { Field, KindBadge, PinPad, SBtn, Seg, Sheet, useCountUp } from "../components/ui";
-import { IArrowDL, IArrowUR, IBank, ICard, IPlus, IWallet, IChevR, ICheck, IcoBolt, ILock } from "../components/icons";
+import { Field, KindBadge, PinPad, SBtn, Seg, Sheet, useCountUp, useNav } from "../components/ui";
+import { IArrowDL, IArrowUR, IBank, ICard, IPlus, IWallet, IChevR, ICheck, IcoBolt, ILock, IPlay } from "../components/icons";
 import { openPaystackCheckout } from "../lib/paystack";
 
 export default function Wallet() {
+  const nav = useNav();
   const { ledger, addFunds, withdraw, toast, claimCashback, profile } = useStark();
   const b = useBalances();
   const bal = useCountUp(b.available);
@@ -119,6 +120,26 @@ export default function Wallet() {
             <SBtn variant="ghost" className="flex-1" onClick={() => setWdOpen(true)}><IArrowUR size={15} /> Withdraw</SBtn>
           </div>
         </div>
+      </div>
+
+      {/* launch console entry */}
+      <div className="px-5 mt-3">
+        <button onClick={() => nav.push({ name: "golive" })}
+          className="press w-full rounded-2xl border border-cyan/25 overflow-hidden text-left group"
+          style={{ background: "linear-gradient(120deg, rgba(0,229,255,0.10), rgba(139,92,246,0.10))" }}>
+          <div className="relative p-4 flex items-center gap-3">
+            <div className="absolute inset-0 grid-bg opacity-15 grid-fade" />
+            <span className="relative shrink-0 w-10 h-10 rounded-xl bg-cyan/15 text-cyan grid place-items-center border border-cyan/30 group-hover:shadow-[0_0_16px_var(--st-glow)] transition-shadow">
+              <IPlay size={19} />
+            </span>
+            <div className="relative flex-1 min-w-0">
+              <p className="text-[9px] font-bold tracking-[0.25em] text-cyan">LIVE PAYMENTS</p>
+              <p className="font-display font-bold text-[13.5px] leading-tight mt-0.5">Launch Console</p>
+              <p className="text-[10px] text-sub mt-0.5 flex items-center gap-1.5"><ILock size={10} className="text-cyan shrink-0" /> 9-stage pre-flight to take Paystack live</p>
+            </div>
+            <IChevR size={16} className="relative text-cyan shrink-0 group-hover:translate-x-0.5 transition-transform" />
+          </div>
+        </button>
       </div>
 
       {/* cashback strip */}

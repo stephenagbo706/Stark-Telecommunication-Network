@@ -118,6 +118,7 @@ body {
 @keyframes kf-bar { 0%, 100% { transform: scaleY(0.25); } 50% { transform: scaleY(1); } }
 @keyframes kf-spin { to { transform: rotate(360deg); } }
 @keyframes kf-breathe { 0%, 100% { opacity: 0.55; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1.06); } }
+@keyframes kf-travel { 0% { left: -6%; opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
 @keyframes kf-kenburns { from { transform: scale(1.04); } to { transform: scale(1.17) translate(-1.4%, -1%); } }
 @keyframes kf-adfill { from { width: 0%; } to { width: 100%; } }
 @keyframes kf-shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
@@ -139,6 +140,7 @@ body {
 .a-marquee { animation: kf-marquee 26s linear infinite; }
 .a-spin { animation: kf-spin 9s linear infinite; }
 .a-breathe { animation: kf-breathe 3.2s ease-in-out infinite; }
+.a-travel { animation: kf-travel 3.4s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite; }
 .a-kenburns { animation: kf-kenburns 7s ease-out forwards; }
 .a-pulse { animation: kf-pulse 1.4s ease-in-out infinite; background: var(--st-raised); }
 .a-adfill { animation-name: kf-adfill; animation-timing-function: linear; animation-fill-mode: forwards; }

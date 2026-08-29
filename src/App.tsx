@@ -9,6 +9,7 @@ import Activity, { TxDetail } from "./screens/Transactions";
 import Ai from "./screens/AI";
 import Profile, { Security } from "./screens/Profile";
 import { Analytics, Beneficiaries, Diagnostics, Help, Notifications, Referrals, Rewards, Subscriptions } from "./screens/More";
+import GoLive from "./screens/GoLive";
 import Splash from "./screens/Splash";
 import { IHome, IWallet, ISpark, ISparkSharp, IActivity, IUser, IWifi, StarkMark } from "./components/icons";
 
@@ -204,6 +205,7 @@ function OverlayScreen({ o }: { o: Overlay }) {
     case "analytics": return <Analytics />;
     case "subscriptions": return <Subscriptions />;
     case "beneficiaries": return <Beneficiaries />;
+    case "golive": return <GoLive />;
   }
 }
 
