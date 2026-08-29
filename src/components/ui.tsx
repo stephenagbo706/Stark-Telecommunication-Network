@@ -195,7 +195,7 @@ export function PinPad({ open, onClose, onSubmit, title = "Enter transaction PIN
           <button onClick={() => press("0")} className="press h-14 rounded-xl bg-well border border-line font-display text-xl font-semibold hover:border-cyan/50">0</button>
           <button onClick={() => !busy && setPin((p) => p.slice(0, -1))} className="press h-14 rounded-xl bg-well border border-line text-sub font-display text-sm hover:border-bad/40 hover:text-bad">⌫</button>
         </div>
-        <p className="text-center text-[10px] text-mute mt-4">Demo PIN: {profile?.pin ?? "1234"} • Never share your PIN</p>
+        <p className="text-center text-[10px] text-mute mt-4">Enter your 4-digit transaction PIN • Never share it</p>
       </div>
     </div>
   );

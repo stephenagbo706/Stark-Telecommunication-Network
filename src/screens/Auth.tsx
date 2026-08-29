@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStark } from "../lib/store";
 import { Field, PinPad, SBtn, Scramble } from "../components/ui";
-import { IcoBolt, IChevR, ICheck, IPlay, IShield, IX, StarkMark } from "../components/icons";
+import { IcoBolt, IChevR, ICheck, IShield, IX, StarkMark } from "../components/icons";
 import AdShow from "../components/AdShow";
 import { AD_IMAGES as ADS } from "../lib/data";
 import { normalizeEmail, normalizePhone, isValidEmail, checkIdentity, formatPhone, IDENTITY_CODES, type IdentityCode } from "../lib/identity";
@@ -9,7 +9,7 @@ import { normalizeEmail, normalizePhone, isValidEmail, checkIdentity, formatPhon
 type Mode = "welcome" | "login" | "unlock" | "register" | "pin" | "otp" | "reset" | "newpin";
 
 export default function Auth() {
-  const { login, register, loadDemo, profile, toast, updateProfile, notify, accounts } = useStark();
+  const { login, register, profile, toast, updateProfile, notify, accounts } = useStark();
   const [mode, setMode] = useState<Mode>("welcome");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -55,7 +55,7 @@ export default function Auth() {
   const verifyOtp = () => {
     setBusy(true);
     setTimeout(() => {
-      if (otpInput !== otpCode) { setErr("That OTP doesn't match the demo SMS above."); setBusy(false); return; }
+      if (otpInput !== otpCode) { setErr("That OTP doesn't match the code sent to your phone."); setBusy(false); return; }
       const res = register({ ...form, pin: pinDraft });
       if (!res.ok) {
         /* Race-safe: the registry rejected the identity at the last moment. */
@@ -137,14 +137,11 @@ export default function Auth() {
                 Sign in{profile ? ` as ${profile.name.split(" ")[0]}` : ""} <IChevR size={16} />
               </SBtn>
               <SBtn variant="ghost" className="w-full" onClick={() => { setErr(null); setMode("register"); }}>Create an account</SBtn>
-              <SBtn variant="outline" className="w-full" onClick={() => loadDemo()}>
-                <IPlay size={15} /> Explore the live demo account
-              </SBtn>
             </div>
 
             <div className="flex items-center gap-3 text-[10px] text-mute px-1 leading-relaxed">
               <IShield size={14} className="text-cyan shrink-0" />
-              <p>Argon2id-hashed credentials • JWT rotation • fraud scoring on every transaction. This demo runs the full product experience in your browser.</p>
+              <p>Argon2id-hashed credentials • JWT rotation • fraud scoring on every transaction. Sign in or create an account to get started.</p>
             </div>
           </div>
         )}
@@ -190,14 +187,14 @@ export default function Auth() {
               <p className="text-xs text-mute mt-1">A one-time code was sent to <span className="text-ink font-semibold">{profile?.email}</span>. A security event was logged.</p>
             </div>
             <div className="card p-4 border-cyan/30 bg-cyan/5">
-              <p className="text-[10px] font-bold tracking-widest text-cyan mb-1">DEMO EMAIL • STARK-RESET</p>
+              <p className="text-[10px] font-bold tracking-widest text-cyan mb-1">EMAIL CODE • STARK-RESET</p>
               <p className="font-display text-2xl font-bold tracking-[0.35em] tnum">{otpCode}</p>
             </div>
             <input value={otpInput} onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric"
               className="st-input text-center font-display text-2xl tracking-[0.5em] tnum" placeholder="••••••" />
             {err && <p className="text-xs text-bad font-semibold bg-bad/10 border border-bad/30 rounded-lg px-3 py-2">{err}</p>}
             <SBtn className="w-full" disabled={otpInput.length !== 6} onClick={() => {
-              if (otpInput !== otpCode) { setErr("That code doesn't match the demo email above."); return; }
+              if (otpInput !== otpCode) { setErr("That code doesn't match the one sent to your email."); return; }
               setErr(null); setPinDraft(""); setMode("newpin");
             }}>Verify code <IChevR size={16} /></SBtn>
             <button className="text-xs text-cyan font-semibold mx-auto block press" onClick={() => setMode("unlock")}>← Back</button>
@@ -279,7 +276,7 @@ export default function Auth() {
               <p className="text-xs text-mute mt-1">We sent a 6-digit code to <span className="text-ink font-semibold">{form.phone}</span>.</p>
             </div>
             <div className="card p-4 border-cyan/30 bg-cyan/5">
-              <p className="text-[10px] font-bold tracking-widest text-cyan mb-1">DEMO SMS • STARK-OTP</p>
+              <p className="text-[10px] font-bold tracking-widest text-cyan mb-1">SMS CODE • STARK-OTP</p>
               <p className="font-display text-2xl font-bold tracking-[0.35em] tnum">{otpCode}</p>
             </div>
             <input
@@ -295,7 +292,7 @@ export default function Auth() {
             </SBtn>
             <div className="flex justify-between items-center">
               <button className="text-xs text-mute press" onClick={() => setMode("pin")}>← Back</button>
-              <button className="text-xs text-cyan font-semibold press disabled:opacity-40" disabled={resendIn > 0} onClick={() => { setResendIn(30); toast("New OTP sent (demo)", "info"); }}>
+              <button className="text-xs text-cyan font-semibold press disabled:opacity-40" disabled={resendIn > 0} onClick={() => { setResendIn(30); toast("New verification code sent", "info"); }}>
                 {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
               </button>
             </div>

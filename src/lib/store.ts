@@ -115,7 +115,6 @@ interface StarkState {
   login: (phone: string, pin: string) => string | null;
   logout: () => void;
   revokeSession: (id: string) => void;
-  loadDemo: () => void;
 
   setAvatar: (dataUrl?: string) => void;
   updateProfile: (p: Partial<Profile>) => void;
@@ -219,7 +218,7 @@ export const useStark = create<StarkState>()(
 
       login: (phone, pin) => {
         const p = get().profile;
-        if (!p) return "No account found on this device. Create one or load the demo account.";
+        if (!p) return "No account found on this device. Create an account to get started.";
         /* Match by canonical phone so 0803… / +234803… / 234803… all resolve to the SAME account (§6, §16). */
         const want = normalizePhone(phone);
         const have = normalizePhone(p.phone);
@@ -266,61 +265,6 @@ export const useStark = create<StarkState>()(
           audit: [auditEv("session_revoked", "A session was revoked from Security → Devices"), ...s.audit],
         }));
         get().toast("Session revoked", "ok");
-      },
-
-      loadDemo: () => {
-        /* The demo account is a REAL account, not a money showcase: the
-           wallet starts at exactly ₦0.00 with no ledger history, no
-           transactions, no points and no rewards. The only way money
-           enters is the user's own Paystack funding. */
-        const now = Date.now();
-        const D = 86400000;
-
-
-        set({
-          authed: true,
-          profile: {
-            name: "Adaeze Okafor", phone: "0803 472 1189", email: "ada.okafor@gmail.com", pin: "1234",
-            emailVerified: true, phoneVerified: true, biometric: true, twoFA: false, frozen: false,
-            joinedAt: now - 210 * D, referralCode: "STARK-ADA7", refEarned: 0,
-            referrals: [],
-          },
-          /* ₦0.00 — the wallet only ever grows from the user's own
-             real Paystack funding. No seeded balances, ever. */
-          ledger: [], txs: [], points: 0,
-          beneficiaries: [],
-          notifications: [
-            { id: uid(), ts: now, read: false, kind: "info", title: "Welcome to STARK", body: "Your wallet starts at ₦0.00. Add money with Paystack to buy airtime, data, cable and electricity." },
-          ],
-          tickets: [],
-          subs: [],
-          devices: [
-            { id: "dev-1", name: "Pixel 8 Pro", platform: "Android 15 • STARK App", lastActive: now, current: true },
-            { id: "dev-2", name: "Chrome • Windows", platform: "Web session", lastActive: now - 26 * 3600000, current: false },
-          ],
-          logins: [
-            { ts: now - 3600000, device: "Pixel 8 Pro", ip: "105.112.34.18", location: "Lagos, NG", status: "success" },
-            { ts: now - 26 * 3600000, device: "Chrome • Windows", ip: "197.210.64.9", location: "Lagos, NG", status: "success" },
-            { ts: now - 3 * D, device: "Unknown • Linux", ip: "41.184.22.310", location: "Accra, GH", status: "failed" },
-          ],
-          /* The demo identity joins the registry — re-registering with the same
-             email or phone now correctly reports ACCOUNT_EXISTS. */
-          accounts: [
-            ...get().accounts.filter((a) => a.email !== "ada.okafor@gmail.com"),
-            { id: "usr-demo", name: "Adaeze Okafor", email: "ada.okafor@gmail.com", phone: "+2348034721189", status: "active" },
-          ],
-          sessions: [
-            { id: "ses-demo-1", device: "Pixel 8 Pro", platform: "Android 15 • STARK App", ip: "105.112.34.18", location: "Lagos, NG", createdAt: now - 3 * D, lastUsedAt: now, current: true, trusted: true },
-            { id: "ses-demo-2", device: "Chrome • Windows", platform: "Web session", ip: "197.210.64.9", location: "Lagos, NG", createdAt: now - 26 * 3600000, lastUsedAt: now - 26 * 3600000, current: false, trusted: false },
-          ],
-          audit: [
-            auditEv("login_success", "Signed in from Pixel 8 Pro"),
-            auditEv("new_device_login", "Chrome • Windows • Lagos, NG"),
-            auditEv("login_failed", "Unknown device • Accra, GH — wrong PIN"),
-            auditEv("account_created", "Account created for ada.okafor@gmail.com (+234 803 472 1189)"),
-          ],
-        });
-        get().toast("Account loaded — PIN 1234 • wallet starts at ₦0", "ok");
       },
 
       setAvatar: (dataUrl) => set((s) => (s.profile ? { profile: { ...s.profile, avatar: dataUrl } } : {})),
