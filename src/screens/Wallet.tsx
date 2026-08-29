@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useStark, useBalances, money, money0, fmtDate, fmtTime, type LedgerKind } from "../lib/store";
 import { Field, KindBadge, PinPad, SBtn, Seg, Sheet, useCountUp } from "../components/ui";
-import { IArrowDL, IArrowUR, IBank, ICard, IPlus, IWallet, IChevR, ICheck, IcoBolt } from "../components/icons";
+import { IArrowDL, IArrowUR, IBank, ICard, IPlus, IWallet, IChevR, ICheck, IcoBolt, ILock } from "../components/icons";
+import { openPaystackCheckout } from "../lib/paystack";
 
 export default function Wallet() {
   const { ledger, addFunds, withdraw, toast, claimCashback, profile } = useStark();
@@ -10,8 +11,11 @@ export default function Wallet() {
   const [filter, setFilter] = useState("All");
   const [fundOpen, setFundOpen] = useState(false);
   const [wdOpen, setWdOpen] = useState(false);
-  const [pinFor, setPinFor] = useState<"fund" | "wd" | null>(null);
+  const [pinFor, setPinFor] = useState<"wd" | null>(null);
   const [fundAmt, setFundAmt] = useState(5000);
+  const [fundEmail, setFundEmail] = useState("");
+  const [fundBusy, setFundBusy] = useState(false);
+  const [fundNote, setFundNote] = useState<string | null>(null);
   const [wd, setWd] = useState({ amount: "", bank: "GTBank", account: "", name: "" });
   const [pinErr, setPinErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,16 +29,37 @@ export default function Wallet() {
     return ledger.filter((e) => f[filter]?.(e.kind)).slice(0, 60);
   }, [ledger, filter]);
 
-  const runFund = async (pin: string) => {
-    if (pin !== profile?.pin) { setPinErr("Incorrect PIN."); return; }
-    setPinErr(null); setBusy(true); setPinFor(null);
+  // Real funding: open Paystack's hosted checkout. The customer pays inside
+  // Paystack (card auth + bank OTP happen THERE — Stark never sees card data
+  // and no Stark PIN gates a deposit). On genuine success we record the
+  // charge with Paystack's real reference. No simulated payments.
+  const startPaystack = async () => {
+    setFundBusy(true); setFundNote(null);
     try {
-      await addFunds(fundAmt);
-      setFundOpen(false);
-      toast(`${money(fundAmt)} added to your wallet`, "ok");
+      await openPaystackCheckout({
+        email: fundEmail.trim() || profile?.email || "customer@stark.app",
+        amountNaira: fundAmt,
+        onSuccess: async ({ reference }) => {
+          try {
+            await addFunds(fundAmt, reference);
+            setFundOpen(false);
+            setFundEmail("");
+            toast(`${money(fundAmt)} added — Paystack ref ${reference}`, "ok");
+          } catch (e) {
+            toast((e as Error).message, "bad");
+          } finally {
+            setFundBusy(false);
+          }
+        },
+        onClose: () => {
+          setFundBusy(false);
+          setFundNote("Checkout closed before payment — nothing was charged.");
+        },
+      });
     } catch (e) {
-      toast((e as Error).message, "bad");
-    } finally { setBusy(false); }
+      setFundBusy(false);
+      setFundNote((e as Error).message || "Could not start Paystack. Try again.");
+    }
   };
 
   const runWd = async (pin: string) => {
@@ -142,7 +167,15 @@ export default function Wallet() {
 
       {/* fund sheet */}
       <Sheet open={fundOpen} onClose={() => setFundOpen(false)} title="Add money">
-        <FundForm amount={fundAmt} setAmount={setFundAmt} onSubmit={() => { setPinErr(null); setPinFor("fund"); }} busy={busy} />
+        <FundForm
+          amount={fundAmt}
+          setAmount={setFundAmt}
+          email={fundEmail}
+          setEmail={setFundEmail}
+          busy={fundBusy}
+          note={fundNote}
+          onPay={startPaystack}
+        />
       </Sheet>
 
       {/* withdraw sheet */}
@@ -175,19 +208,23 @@ export default function Wallet() {
       <PinPad
         open={pinFor !== null}
         onClose={() => setPinFor(null)}
-        onSubmit={pinFor === "fund" ? runFund : runWd}
+        onSubmit={runWd}
         error={pinErr}
         title="Authorize with PIN"
-        subtitle={pinFor === "fund" ? `Funding wallet with ${money0(fundAmt)}` : `Sending ${money0(Number(wd.amount) || 0)} to ${wd.bank}`}
+        subtitle={`Sending ${money0(Number(wd.amount) || 0)} to ${wd.bank}`}
         showBio={profile?.biometric}
       />
     </div>
   );
 }
 
-function FundForm({ amount, setAmount, onSubmit, busy }: { amount: number; setAmount: (n: number) => void; onSubmit: () => void; busy: boolean }) {
-  const [step, setStep] = useState<"amt" | "card">("amt");
-  const [card, setCard] = useState({ num: "4084 0840 8408 4081", exp: "12/27", cvv: "408" });
+function FundForm({ amount, setAmount, email, setEmail, busy, note, onPay }: {
+  amount: number; setAmount: (n: number) => void;
+  email: string; setEmail: (s: string) => void;
+  busy: boolean; note: string | null; onPay: () => void;
+}) {
+  const [step, setStep] = useState<"amt" | "checkout">("amt");
+  const valid = amount >= 100 && amount <= 5000000;
   return (
     <div className="mt-3 flex flex-col">
       {step === "amt" ? (
@@ -210,33 +247,53 @@ function FundForm({ amount, setAmount, onSubmit, busy }: { amount: number; setAm
             </div>
           </div>
           <div className="sticky bottom-0 -mx-5 px-5 pt-3 pb-1 mt-4 bg-raised border-t border-line/50 space-y-2.5">
-            <SBtn className="w-full" disabled={!amount || amount < 100} onClick={() => setStep("card")}>Continue <IChevR size={15} /></SBtn>
-            <p className="text-[10px] text-mute flex items-center justify-center gap-1.5"><ICard size={12} className="text-cyan shrink-0" /> Charged securely by Paystack. STARK never sees your full card number.</p>
+            <SBtn className="w-full" disabled={!valid} onClick={() => setStep("checkout")}>Continue <IChevR size={15} /></SBtn>
+            <p className="text-[10px] text-mute flex items-center justify-center gap-1.5"><ILock size={12} className="text-cyan shrink-0" /> You'll pay on Paystack's secure checkout. STARK never sees your card.</p>
           </div>
         </>
       ) : (
         <>
+          {/* Real Paystack handoff — the amount, the reference and the charge
+              are all genuine. Card entry & bank OTP happen inside Paystack. */}
           <div className="space-y-4">
-            <div className="card p-4 flex items-center gap-3 border-cyan/30">
-              <span className="w-10 h-10 rounded-xl bg-cyan/12 text-cyan grid place-items-center"><ICard size={20} /></span>
-              <div className="flex-1">
-                <p className="text-[13px] font-bold font-display tnum">{card.num}</p>
-                <p className="text-[10px] text-mute font-semibold">VISA •• 4081 • Paystack test card</p>
+            <div className="relative rounded-2xl border border-cyan/30 overflow-hidden p-5"
+              style={{ background: "linear-gradient(150deg, #07222F 0%, #0B3247 60%, #07222F 100%)" }}>
+              <div className="absolute inset-0 grid-bg opacity-20 grid-fade" />
+              <div className="absolute -right-8 -top-10 w-32 h-32 rounded-full" style={{ background: "radial-gradient(circle, var(--st-glow), transparent 70%)" }} />
+              <div className="relative">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-bold tracking-[0.25em] text-cyan">SECURE CHECKOUT</span>
+                  <span className="flex items-center gap-1.5 text-[9px] font-bold text-ok bg-ok/10 border border-ok/25 px-2 py-1 rounded-md"><span className="w-1.5 h-1.5 rounded-full bg-ok a-blink" /> LIVE</span>
+                </div>
+                <p className="font-display font-bold text-[38px] leading-none tnum tracking-tight mt-3">{money(amount)}</p>
+                <p className="text-[11px] text-sub font-semibold mt-2">Wallet funding • Nigerian Naira</p>
+                <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
+                  <span className="text-[12px] font-bold tracking-tight text-ink">paystack <span className="text-cyan">⌁</span></span>
+                  <span className="flex items-center gap-1.5 text-[9px] font-bold text-sub"><ILock size={11} className="text-cyan" /> PCI-DSS • 256-BIT SSL</span>
+                </div>
               </div>
-              <span className="text-[10px] font-bold text-ok bg-ok/10 border border-ok/25 px-2 py-1 rounded-md">SAVED</span>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Expiry" value={card.exp} onChange={(e) => setCard({ ...card, exp: e.target.value })} />
-              <Field label="CVV" type="password" value={card.cvv} onChange={(e) => setCard({ ...card, cvv: e.target.value })} />
-            </div>
-            <div className="bg-well border border-line rounded-xl px-4 py-3 flex justify-between items-center">
-              <span className="text-xs font-semibold text-sub">You will be charged</span>
-              <span className="font-display font-bold tnum">{money(amount)}</span>
+
+            <Field label="Email for receipt" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+
+            {note && (
+              <div className="a-rise text-[11px] font-semibold text-warn bg-warn/10 border border-warn/25 rounded-xl px-3 py-2.5">{note}</div>
+            )}
+
+            <div className="bg-well border border-line rounded-xl px-4 py-3 space-y-1.5">
+              {[["Card", "Visa · Mastercard · Verve"], ["Bank transfer", "All Nigerian banks"], ["USSD / Mobile money", "Instant"]].map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between text-[11px]">
+                  <span className="font-bold">{k}</span>
+                  <span className="text-mute font-semibold">{v}</span>
+                </div>
+              ))}
             </div>
           </div>
           <div className="sticky bottom-0 -mx-5 px-5 pt-3 pb-1 mt-4 bg-raised border-t border-line/50 space-y-2.5">
-            <SBtn className="w-full" loading={busy} onClick={onSubmit}>Pay {money0(amount)} securely</SBtn>
-            <button className="text-xs text-mute font-semibold mx-auto block press" onClick={() => setStep("amt")}>← Change amount</button>
+            <SBtn className="w-full" loading={busy} disabled={busy} onClick={onPay}>
+              {busy ? "Waiting for Paystack…" : <>Pay {money0(amount)} with Paystack <ILock size={14} /></>}
+            </SBtn>
+            <button className="text-xs text-mute font-semibold mx-auto block press" onClick={() => setStep("amt")} disabled={busy}>← Change amount</button>
           </div>
         </>
       )}

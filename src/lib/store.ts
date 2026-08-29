@@ -124,7 +124,7 @@ interface StarkState {
   setTheme: (t: "dark" | "light") => void;
   logoutOthers: () => void;
 
-  addFunds: (amount: number) => Promise<Tx>;
+  addFunds: (amount: number, paystackRef?: string) => Promise<Tx>;
   withdraw: (amount: number, bank: string, account: string, accountName: string) => Promise<Tx>;
   purchase: (input: { service: Service; title: string; amount: number; meta?: TxMeta }) => Promise<Tx>;
   redeemPoints: (pts: number) => string | null;
@@ -408,18 +408,19 @@ export const useStark = create<StarkState>()(
         get().toast("Other devices signed out", "ok");
       },
 
-      addFunds: async (amount) => {
+      addFunds: async (amount, paystackRef) => {
         if (typeof navigator !== "undefined" && !navigator.onLine) throw new Error("You're offline — reconnect to fund your wallet.");
         const ref = makeRef();
         const id = uid();
         const tx: Tx = { id, ref, service: "funding", title: `Wallet funding • Paystack`, amount, fee: 0, total: amount, status: "PENDING", provider: "Paystack", createdAt: Date.now(), meta: {} };
         set((s) => ({ txs: [tx, ...s.txs] }));
-        await sleep(900);
-        set((s) => ({ txs: s.txs.map((t) => (t.id === id ? { ...t, status: "PROCESSING" } : t)) }));
-        await sleep(1300);
+        // The charge has ALREADY completed inside Paystack's hosted checkout
+        // before this is called, so we record it here with the genuine
+        // Paystack reference. In production the Go backend verifies the
+        // signed webhook and posts this credit server-side (idempotently).
         set((s) => ({
-          ledger: [entry("CREDIT", amount, "Wallet funding — Paystack card", ref), ...s.ledger],
-          txs: s.txs.map((t) => (t.id === id ? { ...t, status: "SUCCESSFUL", providerRef: `PS-${Math.random().toString(36).slice(2, 10).toUpperCase()}`, completedAt: Date.now() } : t)),
+          ledger: [entry("CREDIT", amount, "Wallet funding — Paystack", ref), ...s.ledger],
+          txs: s.txs.map((t) => (t.id === id ? { ...t, status: "SUCCESSFUL", providerRef: paystackRef, completedAt: Date.now() } : t)),
         }));
         get().notify({ kind: "success", title: "Wallet funded", body: `${money(amount)} was added to your wallet via Paystack.` });
         return get().txs.find((t) => t.id === id)!;
