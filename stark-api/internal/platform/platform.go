@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -44,6 +45,12 @@ type Config struct {
 	// Paystack secret key lives ONLY on this backend. Flutter never sees it.
 	PaystackSecretKey string
 	PaystackBaseURL   string
+	// Public key (pk_live_… / pk_test_…) — safe for clients, though Stark's
+	// hosted-charge flow initializes server-side and never needs it here.
+	PaystackPublicKey string
+	// Public HTTPS base URL of this API (e.g. https://api.stark.ng).
+	// Used for Paystack return URLs. Must never be localhost in production.
+	APIBaseURL string
 
 	// VTU provider credentials are server-side only.
 	ProviderABaseURL string
@@ -357,4 +364,10 @@ func HMACSHA512Hex(secret string, payload []byte) string {
 func SHA256Hex(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
+}
+
+// ConstantTimeEqualHex compares two hex-encoded MACs without leaking
+// timing information about where they differ (webhook signatures).
+func ConstantTimeEqualHex(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

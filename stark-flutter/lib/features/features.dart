@@ -15,6 +15,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/core.dart';
 import '../core/services/whatsapp_service.dart';
@@ -174,11 +175,26 @@ class WalletRepository {
     return list.map((e) => StarkTx.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  /// Returns the Paystack authorization URL. The wallet is credited only
-  /// after the server verifies the signed webhook — never on return here.
-  Future<String> fund(double amount, String email) async {
-    final res = await _api.dio.post('/api/v1/wallet/fund', data: {'amount': amount, 'email': email});
-    return dataOf(res)['authorization_url'] as String;
+  /// Starts wallet funding through the Stark backend, which talks to
+  /// Paystack with the SERVER-SIDE secret key. Money travels as integer
+  /// kobo — floats never touch it (§13). Returns client-safe data only:
+  /// {authorization_url, reference, message}.
+  ///
+  /// The wallet is credited ONLY when the backend verifies the signed
+  /// gateway webhook — NEVER because this call returned (§8).
+  Future<Map<String, dynamic>> fund(int amountKobo, String email) async {
+    final res = await _api.dio.post('/api/v1/wallet/fund',
+        data: {'amount_kobo': amountKobo, 'email': email});
+    return dataOf(res);
+  }
+
+  /// Backend-authoritative payment status. Polling this is the ONLY way
+  /// the app learns a payment's outcome — the return callback is UX, not
+  /// proof of payment. Ownership is enforced server-side: the reference
+  /// must belong to the authenticated user.
+  Future<Map<String, dynamic>> paymentStatus(String reference) async {
+    final res = await _api.dio.get('/api/v1/payments/$reference/status');
+    return dataOf(res);
   }
 
   Future<Map<String, dynamic>> purchase(Map<String, dynamic> body, String pin) async {
@@ -439,14 +455,71 @@ class HomeScreen extends ConsumerWidget {
       ),
     );
     if (result == null || result.isEmpty) return;
-    try {
-      final url = await ref.read(walletRepositoryProvider)
-          .fund(double.parse(result), user?.email ?? '');
+
+    // Integer kobo end-to-end — no floats anywhere near money (§13).
+    final naira = int.tryParse(result);
+    if (naira == null || naira < 100) {
       if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Minimum funding amount is ₦100.')));
+      }
+      return;
+    }
+    final amountKobo = naira * 100;
+
+    try {
+      final repo = ref.read(walletRepositoryProvider);
+
+      // 1. Backend initializes Paystack (secret key stays server-side).
+      final init = await repo.fund(amountKobo, user?.email ?? '');
+      final url = init['authorization_url']?.toString() ?? '';
+      final reference = init['reference']?.toString() ?? '';
+      if (url.isEmpty || reference.isEmpty) {
+        throw Exception('The payment could not be started. Please retry.');
+      }
+
+      // 2. Launch the gateway's hosted payment page externally.
+      final launched = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Opening Paystack… your wallet updates after server verification.'),
-          action: SnackBarAction(label: url.isEmpty ? '' : 'Pay', onPressed: () {}),
+          content: Text('Open this link to pay: $url'),
+          duration: const Duration(seconds: 12),
         ));
+      }
+
+      // 3. The backend is the ONLY authority on the outcome (§8). Poll the
+      //    payment status until it is terminal; then refresh the balance
+      //    from the server. Never credit the wallet locally.
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Verifying your payment with Stark…'),
+          duration: Duration(seconds: 2),
+        ));
+      }
+      String status = 'pending';
+      for (var i = 0; i < 30 && status == 'pending'; i++) {
+        await Future<void>.delayed(const Duration(seconds: 3));
+        try {
+          final s = await repo.paymentStatus(reference);
+          status = s['status']?.toString() ?? 'pending';
+        } catch (_) {
+          // Transient network hiccup — keep polling; the webhook and the
+          // reconciliation worker still settle the payment regardless.
+        }
+      }
+      ref.invalidate(walletBalancesProvider);
+      ref.invalidate(transactionsProvider);
+
+      if (context.mounted) {
+        final msg = status == 'successful'
+            ? 'Wallet funded — ₦$naira added.'
+            : status == 'failed' || status == 'abandoned'
+                ? 'The payment was not completed. Nothing was charged.'
+                : 'Your payment is still being verified. Your wallet updates automatically once confirmed.';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (e) {
       if (context.mounted) {

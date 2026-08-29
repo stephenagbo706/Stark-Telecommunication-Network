@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"stark-api/internal/auth"
+	"stark-api/internal/diagnostics"
 	"stark-api/internal/finance"
 	"stark-api/internal/platform"
 	"stark-api/internal/referrals"
@@ -58,10 +59,11 @@ func main() {
 	support.SetAuthMiddleware(authMod.Auth)
 	referrals.SetAuthMiddleware(authMod.Auth)
 
-	// Background workers: reconciliation, provider health, renewals and
-	// the referral activator (qualifying-purchase → reward pipeline, §38).
+	// Background workers: VTU reconciliation, provider health, referral
+	// activation and PAYMENT reconciliation (stuck Paystack funding).
 	go finMod.RunReconciler(ctx, 60*time.Second)
 	go finMod.RunProviderHealth(ctx, 45*time.Second)
+	go finMod.RunPaymentReconciler(ctx, 60*time.Second)
 	go referralMod.RunActivator(ctx, 30*time.Second)
 
 	if *workerOnly {
@@ -75,6 +77,7 @@ func main() {
 	finMod.Routes(mux)
 	supportMod.Routes(mux)
 	referralMod.Routes(mux)
+	diagMod.Routes(mux)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

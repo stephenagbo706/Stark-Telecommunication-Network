@@ -14,8 +14,8 @@ package finance
 import (
 	"bytes"
 	"context"
+	cryptoRand "crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -33,6 +33,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"stark-api/internal/auth"
+	"stark-api/internal/payments"
 	"stark-api/internal/platform"
 )
 
@@ -42,10 +43,16 @@ type Module struct {
 	rdb       *redis.Client
 	log       *slog.Logger
 	providers *ProviderEngine
-	httpc     *http.Client
+	gateway   payments.Gateway // Paystack today; Remita tomorrow — same seam
 }
 
 func New(cfg platform.Config, db *pgxpool.Pool, rdb *redis.Client, log *slog.Logger) *Module {
+	return NewWithGateway(cfg, db, rdb, log, payments.NewPaystack(cfg.PaystackBaseURL, cfg.PaystackSecretKey))
+}
+
+// NewWithGateway allows tests (and future processors) to inject a gateway.
+// Production wiring always goes through New.
+func NewWithGateway(cfg platform.Config, db *pgxpool.Pool, rdb *redis.Client, log *slog.Logger, gw payments.Gateway) *Module {
 	eng := NewProviderEngine(log)
 	eng.Register(NewHTTPProvider("provider-a", 1, cfg.ProviderABaseURL, cfg.ProviderAKey))
 	eng.Register(NewHTTPProvider("provider-b", 2, cfg.ProviderBBaseURL, cfg.ProviderBKey))
@@ -53,7 +60,7 @@ func New(cfg platform.Config, db *pgxpool.Pool, rdb *redis.Client, log *slog.Log
 		cfg: cfg, db: db, rdb: rdb,
 		log:       log.With("module", "finance"),
 		providers: eng,
-		httpc:     &http.Client{Timeout: 25 * time.Second},
+		gateway:   gw,
 	}
 }
 
@@ -389,71 +396,113 @@ func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 /* =========================== PAYSTACK =============================== */
 
-// Fund initializes a Paystack charge. The secret key is server-side only;
-// Flutter receives only the authorization URL. The wallet is credited ONLY
-// after the signed webhook is verified — frontend callbacks are never trusted.
+/* -------------------- LIVE-MONEY FUNDING FLOW -------------------------
+ *
+ * Invariants enforced below (§7, §13–§15):
+ *   - Amount travels as INTEGER KOBO end-to-end. No floats touch money.
+ *   - Stark generates the payment reference BEFORE contacting Paystack
+ *     (crypto/rand), so the PENDING record exists first and ownership is
+ *     bound to the authenticated user — never to client-supplied metadata.
+ *   - The wallet is credited ONLY by settlePayment, driven by a signature-
+ *     verified webhook or the reconciliation worker. Callbacks and client
+ *     claims never credit anything.
+ */
+
+const (
+	minFundKobo = 10000      // ₦100
+	maxFundKobo = 500000000  // ₦5,000,000 per charge
+)
+
+// payRef mints a cryptographically random Stark payment reference:
+// STK-PAY-YYYYMMDD-XXXXXXXX. Never Math.random, never sequential.
+func payRef(now time.Time) string {
+	b := make([]byte, 4)
+	if _, err := cryptoRand.Read(b); err != nil {
+		b = []byte(uuid.NewString()[:4]) // uuid v4 is crypto/rand-backed anyway
+	}
+	return fmt.Sprintf("STK-PAY-%s-%s", now.Format("20060102"), strings.ToUpper(hex.EncodeToString(b)))
+}
+
+// Fund initializes a real Paystack charge for the authenticated user.
+// Response contains ONLY client-safe data: authorization_url + reference.
 func (m *Module) Fund(w http.ResponseWriter, r *http.Request) {
 	uid := auth.UserID(r.Context())
 	var req struct {
-		Amount float64 `json:"amount"`
-		Email  string  `json:"email"`
+		AmountKobo int64  `json:"amount_kobo"` // integer minor units (§13)
+		Email      string `json:"email"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req.Amount < 100 {
-		platform.WriteErr(w, r, 422, "invalid_amount", "Minimum funding amount is ₦100.")
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		platform.WriteErr(w, r, 400, "invalid_body", "Check the funding details and try again.")
 		return
 	}
-	if m.cfg.PaystackSecretKey == "" {
+	if req.AmountKobo < minFundKobo || req.AmountKobo > maxFundKobo {
+		platform.WriteErr(w, r, 422, "invalid_amount", "Enter an amount between ₦100 and ₦5,000,000.")
+		return
+	}
+	if !strings.Contains(req.Email, "@") {
+		platform.WriteErr(w, r, 422, "invalid_email", "Enter a valid email for the payment receipt.")
+		return
+	}
+	if m.cfg.PaystackSecretKey == "" || m.cfg.APIBaseURL == "" {
 		platform.WriteErr(w, r, 503, "payments_unconfigured", "Card funding is being configured. Please try again shortly.")
 		return
 	}
-	body, _ := json.Marshal(map[string]any{
-		"email": req.Email, "amount": int64(req.Amount * 100), "currency": "NGN",
-		"callback_url": "https://api.stark.example/api/v1/payments/webhook/paystack",
-		"metadata":     map[string]string{"stark_user_id": uid},
-	})
-	hreq, _ := http.NewRequest("POST", m.cfg.PaystackBaseURL+"/transaction/initialize", bytes.NewReader(body))
-	hreq.Header.Set("Authorization", "Bearer "+m.cfg.PaystackSecretKey)
-	hreq.Header.Set("Content-Type", "application/json")
-	resp, err := m.httpc.Do(hreq)
-	if err != nil {
-		platform.WriteErr(w, r, 502, "paystack_unreachable", "The payment gateway didn't respond. Please retry.")
-		return
-	}
-	defer resp.Body.Close()
-	var out struct {
-		Status bool `json:"status"`
-		Data   struct {
-			AuthorizationURL string `json:"authorization_url"`
-			Reference        string `json:"reference"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || !out.Status {
-		platform.WriteErr(w, r, 502, "paystack_error", "The payment gateway rejected the request. Please retry.")
-		return
-	}
-	_, _ = m.db.Exec(r.Context(),
+
+	// 1. Stark owns the reference; the PENDING record is created BEFORE any
+	//    gateway call, bound to the authenticated user (§15 ownership).
+	ref := payRef(time.Now())
+	if _, err := m.db.Exec(r.Context(),
 		`INSERT INTO payments (id, user_id, gateway, reference, amount_kobo, status)
-		 VALUES ($1,$2,'paystack',$3,$4,'pending')`,
-		uuid.NewString(), uid, out.Data.Reference, int64(req.Amount*100))
+		 VALUES ($1,$2,$3,$4,$5,'pending')`,
+		uuid.NewString(), uid, m.gateway.Name(), ref, req.AmountKobo); err != nil {
+		platform.WriteErr(w, r, 500, "internal", "We couldn't start the payment. Please retry.")
+		return
+	}
+
+	// 2. Initialize the gateway charge. The secret key is applied inside the
+	//    gateway — it never leaves the backend process.
+	res, err := m.gateway.Initialize(r.Context(), payments.InitRequest{
+		Email:       req.Email,
+		AmountKobo:  req.AmountKobo,
+		Reference:   ref,
+		CallbackURL: m.cfg.APIBaseURL + "/api/v1/payments/paystack/return",
+		Metadata:    map[string]any{"stark_reference": ref},
+	})
+	if err != nil {
+		_, _ = m.db.Exec(r.Context(),
+			`UPDATE payments SET status='failed', failure_reason='gateway_init_failed' WHERE reference=$1 AND status='pending'`, ref)
+		switch {
+		case errors.Is(err, payments.ErrUnreachable):
+			platform.WriteErr(w, r, 502, "paystack_unreachable", "The payment gateway didn't respond. Please retry.")
+		default:
+			platform.WriteErr(w, r, 502, "paystack_error", "The payment gateway rejected the request. Please retry.")
+		}
+		return
+	}
+
+	m.log.Info("payment initialized", "reference", ref, "user_id", uid, "amount_kobo", req.AmountKobo)
 	platform.WriteJSON(w, r, 200, map[string]string{
-		"authorization_url": out.Data.AuthorizationURL, "reference": out.Data.Reference,
-		"message": "Your payment is being verified once the gateway confirms it.",
+		"authorization_url": res.AuthorizationURL,
+		"reference":         ref,
+		"message":           "Complete the payment — your wallet is credited only after Stark verifies it with the gateway.",
 	})
 }
 
-// PaystackWebhook verifies the HMAC-SHA512 signature, deduplicates by
-// reference, re-verifies with the Paystack API, then credits the wallet
-// through the ledger (PAYSTACK_CLEARING → WALLET).
+// PaystackWebhook is the ONLY path that can credit a funded wallet,
+// alongside the reconciliation worker (both funnel through settlePayment).
+//
+// Pipeline (§9–§12): raw body → signature → event parse → dedupe claim →
+// server-to-server verify → settlePayment (ownership + amount + currency +
+// atomic conditional credit). Untrusted input never touches the ledger.
 func (m *Module) PaystackWebhook(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		w.WriteHeader(400)
 		return
 	}
-	sig := r.Header.Get("x-paystack-signature")
-	want := platform.HMACSHA512Hex(m.cfg.PaystackSecretKey, raw)
-	if subtle.ConstantTimeCompare([]byte(sig), []byte(want)) != 1 {
-		m.log.Warn("webhook signature mismatch")
+	// 1. Signature first — everything else is untrusted until this passes.
+	if !m.gateway.VerifyWebhookSignature(raw, r.Header.Get("x-paystack-signature")) {
+		m.log.Warn("paystack webhook signature mismatch")
 		w.WriteHeader(401)
 		return
 	}
@@ -461,82 +510,226 @@ func (m *Module) PaystackWebhook(w http.ResponseWriter, r *http.Request) {
 		Event string `json:"event"`
 		Data  struct {
 			Reference string `json:"reference"`
-			Amount    int64  `json:"amount"`
-			Status    string `json:"status"`
-			Metadata  struct {
-				StarkUserID string `json:"stark_user_id"`
-			} `json:"metadata"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(raw, &evt); err != nil || evt.Event != "charge.success" {
+	if err := json.Unmarshal(raw, &evt); err != nil {
+		w.WriteHeader(200)
+		return
+	}
+	if evt.Event != "charge.success" {
+		// charge.pending / transfer.* etc. are acknowledged, not credited.
+		w.WriteHeader(200)
+		return
+	}
+	if evt.Data.Reference == "" {
 		w.WriteHeader(200)
 		return
 	}
 
-	// Duplicate webhook protection.
+	// 2. Fast-path dedupe (Redis). The AUTHORITATIVE dedupe is the
+	//    conditional UPDATE inside settlePayment — safe even if Redis is down.
 	fresh, err := platform.ClaimIdempotency(r.Context(), m.rdb, "pswh:"+evt.Data.Reference, 7*24*time.Hour)
-	if err != nil || !fresh {
+	if err == nil && !fresh {
 		w.WriteHeader(200) // already processed
 		return
 	}
 
-	// Server-to-server re-verification — never trust the event alone.
-	if !m.verifyWithPaystack(r.Context(), evt.Data.Reference, evt.Data.Amount) {
-		m.log.Error("webhook failed re-verification", "reference", evt.Data.Reference)
+	// 3. Re-verify server-to-server. The webhook payload alone is never
+	//    sufficient proof of payment.
+	v, verr := m.gateway.Verify(r.Context(), evt.Data.Reference)
+	if verr != nil {
+		// Gateway temporarily unavailable: acknowledge so Paystack doesn't
+		// storm us; the reconciliation worker will settle this payment once
+		// verification succeeds. Nothing is credited or lost.
+		m.log.Error("webhook re-verification unavailable — reconciler will settle",
+			"reference", evt.Data.Reference, "err", verr)
 		w.WriteHeader(200)
 		return
 	}
 
-	tx, err := m.db.Begin(r.Context())
-	if err != nil {
-		w.WriteHeader(500)
+	// 4. Settle (idempotent, atomic, ownership/amount/currency-checked).
+	outcome, serr := m.settlePayment(r.Context(), evt.Data.Reference, v)
+	if serr != nil {
+		m.log.Error("webhook settlement failed", "reference", evt.Data.Reference, "err", serr)
+		w.WriteHeader(500) // Paystack retries; settlePayment stays idempotent
 		return
 	}
-	defer tx.Rollback(r.Context())
-	if _, err := tx.Exec(r.Context(),
-		`UPDATE payments SET status='successful', verified_at=now() WHERE reference=$1 AND status='pending'`,
-		evt.Data.Reference); err != nil {
-		w.WriteHeader(500)
-		return
-	}
-	txID := uuid.NewString()
-	if err := m.Post(r.Context(), tx, evt.Data.Metadata.StarkUserID, txID, "fund:"+evt.Data.Reference, "wallet funding", []Entry{
-		{AccountKind: "PAYSTACK_CLEARING", Direction: "DEBIT", AmountKobo: evt.Data.Amount},
-		{AccountKind: "WALLET", Direction: "CREDIT", AmountKobo: evt.Data.Amount},
-	}); err != nil {
-		m.log.Error("funding ledger post failed", "reference", evt.Data.Reference, "err", err)
-		w.WriteHeader(500)
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		w.WriteHeader(500)
-		return
-	}
-	m.notify(evt.Data.Metadata.StarkUserID, "Wallet funded",
-		fmt.Sprintf("₦%.2f was added to your wallet.", float64(evt.Data.Amount)/100))
+	m.log.Info("webhook processed", "reference", evt.Data.Reference, "outcome", outcome)
 	w.WriteHeader(200)
 }
 
-func (m *Module) verifyWithPaystack(ctx context.Context, reference string, amountKobo int64) bool {
-	hreq, _ := http.NewRequestWithContext(ctx, "GET", m.cfg.PaystackBaseURL+"/transaction/verify/"+reference, nil)
-	hreq.Header.Set("Authorization", "Bearer "+m.cfg.PaystackSecretKey)
-	resp, err := m.httpc.Do(hreq)
+// settlePayment is the single money-moving path for funding. It is
+// idempotent and race-safe: two identical calls (even concurrent) produce
+// exactly ONE wallet credit.
+//
+//	outcomes: "credited" | "duplicate" | "unknown" | "amount_mismatch" |
+//	          "currency_mismatch" | "gateway_failed" | "abandoned"
+func (m *Module) settlePayment(ctx context.Context, reference string, v payments.VerifyResult) (string, error) {
+	tx, err := m.db.Begin(ctx)
 	if err != nil {
-		return false
+		return "", err
 	}
-	defer resp.Body.Close()
-	var out struct {
-		Status bool `json:"status"`
-		Data   struct {
-			Status   string `json:"status"`
-			Amount   int64  `json:"amount"`
-			Currency string `json:"currency"`
-		} `json:"data"`
+	defer tx.Rollback(ctx)
+
+	// Lock the payment row; ownership comes from the DB record created at
+	// Fund time (§15) — NEVER from gateway/webhook metadata.
+	var uid string
+	var want int64
+	var status string
+	err = tx.QueryRow(ctx,
+		`SELECT user_id, amount_kobo, status FROM payments WHERE reference=$1 FOR UPDATE`,
+		reference).Scan(&uid, &want, &status)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "unknown", nil // webhook for a payment Stark never created
+		}
+		return "", err
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return false
+	if status != "pending" {
+		return "duplicate", nil // already settled/failed/refunded — never twice
 	}
-	return out.Status && out.Data.Status == "success" && out.Data.Amount == amountKobo && out.Data.Currency == "NGN"
+
+	switch {
+	case v.Status != "success":
+		// failed / abandoned / pending — record honestly, credit nothing.
+		newStatus := "failed"
+		if v.Status == "abandoned" {
+			newStatus = "abandoned"
+		}
+		if v.Status == "pending" {
+			return "duplicate", nil // gateway still unsure; reconciler retries later
+		}
+		_, err := tx.Exec(ctx,
+			`UPDATE payments SET status=$2, failure_reason=$3 WHERE reference=$1 AND status='pending'`,
+			reference, newStatus, "gateway_status_"+v.Status)
+		if err != nil {
+			return "", err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
+		m.notify(uid, "Payment not completed",
+			"Your funding attempt was not completed by the gateway. Nothing was charged.")
+		return "gateway_failed", nil
+
+	case v.AmountKobo != want:
+		// §14 — amount tampering / mismatch: record the discrepancy for
+		// manual review, credit NOTHING.
+		if _, err := tx.Exec(ctx,
+			`UPDATE payments SET status='failed', failure_reason='amount_mismatch' WHERE reference=$1 AND status='pending'`,
+			reference); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
+		m.log.Error("PAYMENT AMOUNT MISMATCH — manual review required",
+			"reference", reference, "stark_kobo", want, "gateway_kobo", v.AmountKobo)
+		return "amount_mismatch", nil
+
+	case v.Currency != "NGN":
+		if _, err := tx.Exec(ctx,
+			`UPDATE payments SET status='failed', failure_reason='currency_mismatch' WHERE reference=$1 AND status='pending'`,
+			reference); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
+		m.log.Error("PAYMENT CURRENCY MISMATCH — manual review required",
+			"reference", reference, "currency", v.Currency)
+		return "currency_mismatch", nil
+	}
+
+	// Atomic success path (§12): conditional status flip + balanced ledger
+	// posting in ONE transaction. If anything fails, ROLLBACK leaves the
+	// payment pending (reconciler retries) — never a half-applied state.
+	tag, err := tx.Exec(ctx,
+		`UPDATE payments SET status='successful', verified_at=now(),
+		        provider_transaction_id=$2, channel=$3
+		   WHERE reference=$1 AND status='pending'`,
+		reference, v.TransactionID, v.Channel)
+	if err != nil {
+		return "", err
+	}
+	if tag.RowsAffected() != 1 {
+		return "duplicate", nil // a concurrent settler won the race
+	}
+	if err := m.Post(ctx, tx, uid, uuid.NewString(), "fund:"+reference, "wallet funding", []Entry{
+		{AccountKind: "PAYSTACK_CLEARING", Direction: "DEBIT", AmountKobo: want},
+		{AccountKind: "WALLET", Direction: "CREDIT", AmountKobo: want},
+	}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	m.log.Info("wallet funded", "reference", reference, "user_id", uid, "amount_kobo", want,
+		"provider_transaction_id", v.TransactionID)
+	m.notify(uid, "Wallet funded",
+		fmt.Sprintf("₦%s was added to your wallet.", formatNaira(want)))
+	return "credited", nil
+}
+
+// formatNaira renders integer kobo as grouped naira WITHOUT float math.
+func formatNaira(kobo int64) string {
+	naira := kobo / 100
+	s := fmt.Sprintf("%d", naira)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	if kobo%100 != 0 {
+		s += fmt.Sprintf(".%02d", kobo%100)
+	}
+	return s
+}
+
+// PaymentStatus lets Flutter poll the BACKEND for the truth about a
+// payment after the Paystack sheet closes. Read-only; ownership-checked;
+// never credits anything (§8: callback ≠ confirmation).
+func (m *Module) PaymentStatus(w http.ResponseWriter, r *http.Request) {
+	uid := auth.UserID(r.Context())
+	ref := chi.URLParam(r, "reference")
+	var status, failReason string
+	var amount int64
+	var verifiedAt *time.Time
+	err := m.db.QueryRow(r.Context(),
+		`SELECT status, amount_kobo, COALESCE(failure_reason,''), verified_at
+		   FROM payments WHERE reference=$1 AND user_id=$2`, ref, uid).
+		Scan(&status, &amount, &failReason, &verifiedAt)
+	if err != nil {
+		platform.WriteErr(w, r, 404, "payment_not_found", "We couldn't find that payment on your account.")
+		return
+	}
+	out := map[string]any{"reference": ref, "status": status, "amount_kobo": amount}
+	if failReason != "" {
+		out["failure_reason"] = failReason
+	}
+	if status == "pending" {
+		out["message"] = "Your payment is still being verified. Your wallet updates automatically once confirmed."
+	}
+	platform.WriteJSON(w, r, 200, out)
+}
+
+// PaymentReturn is Paystack's redirect target after the customer pays.
+// It is a UX convenience ONLY — it displays a return page and attempts the
+// app deep link. It performs NO financial action (§22: callback ≠ proof).
+func (m *Module) PaymentReturn(w http.ResponseWriter, r *http.Request) {
+	ref := r.URL.Query().Get("reference")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STARK — Payment</title>
+<style>body{font-family:system-ui;background:#050B14;color:#fff;display:flex;align-items:center;
+justify-content:center;min-height:100vh;margin:0;text-align:center}
+h1{color:#00CFFF;font-size:20px}p{color:#A8B5C8;font-size:14px;max-width:320px}
+a{display:inline-block;margin-top:16px;padding:12px 24px;background:#00CFFF;color:#05121f;
+border-radius:12px;text-decoration:none;font-weight:700}</style></head>
+<body><div><h1>⌁ STARK</h1>
+<p>Your payment status is being verified. Open the Stark app — your wallet
+updates automatically once the payment is confirmed.</p>
+<a href="stark://payment/return?reference=%s">Return to Stark</a></div></body></html>`,
+		strings.ReplaceAll(ref, `"`, ""))
 }
 
 /* ======================= VTU PROVIDER ENGINE ======================== */
@@ -726,6 +919,60 @@ func (m *Module) RunReconciler(ctx context.Context, every time.Duration) {
 	}
 }
 
+// RunPaymentReconciler settles funding payments stuck in PENDING after the
+// webhook window (§17): the customer paid but the webhook was delayed, the
+// phone went offline, or Flutter was killed mid-payment. It re-verifies
+// each stale payment with the gateway and funnels through settlePayment —
+// the SAME idempotent path as the webhook, so a payment is credited exactly
+// once no matter which path wins. Uncertain verifications are left pending
+// for the next cycle; nothing is ever force-reversed while uncertain.
+func (m *Module) RunPaymentReconciler(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			m.reconcilePaymentsOnce(ctx)
+		}
+	}
+}
+
+// reconcilePaymentsOnce is one idempotent reconciliation pass — extracted
+// so tests can drive it deterministically.
+func (m *Module) reconcilePaymentsOnce(ctx context.Context) {
+	rows, err := m.db.Query(ctx,
+		`SELECT reference FROM payments
+		  WHERE status='pending' AND created_at < now() - interval '5 minutes'
+		  ORDER BY created_at ASC LIMIT 50`)
+	if err != nil {
+		return
+	}
+	var refs []string
+	for rows.Next() {
+		var ref string
+		if rows.Scan(&ref) == nil {
+			refs = append(refs, ref)
+		}
+	}
+	rows.Close()
+	for _, ref := range refs {
+		v, verr := m.gateway.Verify(ctx, ref)
+		if verr != nil {
+			continue // gateway unavailable — retry next cycle
+		}
+		outcome, serr := m.settlePayment(ctx, ref, v)
+		if serr != nil {
+			m.log.Error("payment reconciliation failed", "reference", ref, "err", serr)
+			continue
+		}
+		if outcome != "duplicate" && outcome != "unknown" {
+			m.log.Info("payment reconciled", "reference", ref, "outcome", outcome)
+		}
+	}
+}
+
 // RunProviderHealth pings providers and logs degraded ones.
 func (m *Module) RunProviderHealth(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
@@ -743,8 +990,14 @@ func (m *Module) RunProviderHealth(ctx context.Context, every time.Duration) {
 }
 
 func (m *Module) Routes(r *chi.Mux) {
-	// Webhook is outside the auth middleware (Paystack signs it instead).
+	// Webhook lives OUTSIDE JWT auth — Paystack authenticates it with the
+	// HMAC signature instead. Both the legacy path and the canonical
+	// Paystack-style path are served by the same hardened handler.
 	r.Post("/api/v1/payments/webhook/paystack", m.PaystackWebhook)
+	r.Post("/api/v1/payments/paystack/webhook", m.PaystackWebhook)
+
+	// Post-payment redirect target (UX only — never credits anything).
+	r.Get("/api/v1/payments/paystack/return", m.PaymentReturn)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
@@ -758,6 +1011,7 @@ func (m *Module) Routes(r *chi.Mux) {
 			r.Get("/wallet", m.handleWallet)
 			r.Get("/wallet/ledger", m.handleLedger)
 			r.Post("/wallet/fund", m.Fund)
+			r.Get("/payments/{reference}/status", m.PaymentStatus)
 			r.Post("/transactions/purchase", m.Purchase)
 			r.Get("/transactions", m.handleTransactions)
 			r.Get("/transactions/{id}", m.handleTransaction)
