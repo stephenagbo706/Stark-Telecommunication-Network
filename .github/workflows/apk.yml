@@ -1,0 +1,67 @@
+# ============================================================
+# STARK TELECOMMUNICATION — Android APK builder
+#
+# Gives you the APK WITHOUT installing anything locally:
+#   1. Push the repo to GitHub
+#   2. GitHub → Actions → "Build Android APK" → Run workflow
+#   3. When it finishes, open the run → Artifacts
+#   4. Download `stark-telecom-debug-apk.zip` → unzip → install
+#
+# Also runs automatically on pushes that touch stark-flutter/.
+# ============================================================
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, develop]
+    paths:
+      - "stark-flutter/**"
+      - ".github/workflows/apk.yml"
+
+jobs:
+  apk:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stark-flutter
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 17 (required by AGP 8.x)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Materializes the Gradle wrapper + any missing platform files.
+      # Every file that already exists in the repo is SKIPPED — your
+      # Stark configuration and code are never overwritten.
+      - name: Materialize Android platform + Gradle wrapper
+        run: flutter create --platforms=android --project-name stark_telecom --org app.stark .
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Generate Freezed / Drift / JSON code
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stark-telecom-debug-apk
+          path: stark-flutter/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
