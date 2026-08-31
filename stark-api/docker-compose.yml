@@ -1,0 +1,121 @@
+# STARK Telecommunication — local production-like stack.
+# Usage:
+#   cp .env.example .env   # then set real secrets (never commit .env)
+#   docker compose up --build
+#
+# Services: postgres, redis, migrations (one-shot), api (HTTP), worker.
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: stark
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stark-dev-only}
+      POSTGRES_DB: stark
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stark -d stark"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  migrate:
+    image: ghcr.io/pressly/goose:v3.24.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgres://stark:${POSTGRES_PASSWORD:-stark-dev-only}@postgres:5432/stark?sslmode=disable
+    volumes: [./migrations:/migrations]
+    command: ["goose", "-dir", "/migrations", "up"]
+    restart: on-failure
+
+  api:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM golang:1.23-alpine AS build
+        WORKDIR /src
+        COPY go.mod ./
+        RUN go mod download || true
+        COPY . .
+        RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
+
+        FROM alpine:3.20
+        RUN adduser -D stark && apk add --no-cache ca-certificates
+        USER stark
+        WORKDIR /app
+        COPY --from=build /out/server /app/server
+        EXPOSE 8080
+        ENTRYPOINT ["/app/server"]
+    environment:
+      STARK_ENV: production
+      STARK_PORT: 8080
+      STARK_DB_URL: postgres://stark:${POSTGRES_PASSWORD:-stark-dev-only}@postgres:5432/stark?sslmode=disable
+      STARK_REDIS_URL: redis://redis:6379/0
+      STARK_JWT_ACCESS_SECRET: ${STARK_JWT_ACCESS_SECRET:?set in .env}
+      STARK_JWT_REFRESH_SECRET: ${STARK_JWT_REFRESH_SECRET:?set in .env}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:?set in .env}
+      VTU_PROVIDER_A_URL: ${VTU_PROVIDER_A_URL:-}
+      VTU_PROVIDER_A_KEY: ${VTU_PROVIDER_A_KEY:-}
+      VTU_PROVIDER_B_URL: ${VTU_PROVIDER_B_URL:-}
+      VTU_PROVIDER_B_KEY: ${VTU_PROVIDER_B_KEY:-}
+      STARK_CORS_ORIGINS: ${STARK_CORS_ORIGINS:-*}
+    ports: ["8080:8080"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM golang:1.23-alpine AS build
+        WORKDIR /src
+        COPY go.mod ./
+        RUN go mod download || true
+        COPY . .
+        RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
+
+        FROM alpine:3.20
+        RUN adduser -D stark && apk add --no-cache ca-certificates
+        USER stark
+        WORKDIR /app
+        COPY --from=build /out/server /app/server
+        ENTRYPOINT ["/app/server", "-worker"]
+    environment:
+      STARK_ENV: production
+      STARK_DB_URL: postgres://stark:${POSTGRES_PASSWORD:-stark-dev-only}@postgres:5432/stark?sslmode=disable
+      STARK_REDIS_URL: redis://redis:6379/0
+      STARK_JWT_ACCESS_SECRET: ${STARK_JWT_ACCESS_SECRET:?set in .env}
+      STARK_JWT_REFRESH_SECRET: ${STARK_JWT_REFRESH_SECRET:?set in .env}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:?set in .env}
+      VTU_PROVIDER_A_URL: ${VTU_PROVIDER_A_URL:-}
+      VTU_PROVIDER_A_KEY: ${VTU_PROVIDER_A_KEY:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

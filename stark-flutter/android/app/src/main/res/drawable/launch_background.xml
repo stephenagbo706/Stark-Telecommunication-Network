@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- STARK dark canvas (#050B14) — no white flash before the app's dark theme renders. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="#050B14" />
+</layer-list>

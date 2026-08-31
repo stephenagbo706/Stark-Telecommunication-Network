@@ -1,0 +1,29 @@
+# STARK — SQLC configuration.
+#
+# SQLC turns the annotated SQL in internal/db/queries into strongly typed,
+# compile-time-checked Go against PostgreSQL (pgx/v5 driver).
+#
+#   go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate
+#
+# The schema source of truth is migrations/ (Goose-managed).
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/db/queries"
+    gen:
+      go:
+        package: "db"
+        out: "internal/db"
+        sql_package: "pgx/v5"
+        emit_interface: true        # Querier interface — mockable in tests
+        emit_json_tags: true
+        emit_empty_slices: true
+        emit_result_struct_pointers: true
+        rename:
+          kobo: "Kobo"
+        overrides:
+          - db_type: "uuid"
+            go_type: "string"
+          - db_type: "timestamptz"
+            go_type: "time.Time"
